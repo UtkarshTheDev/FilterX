@@ -153,3 +153,19 @@ Response:
 5. Consider providing old messages for better context analysis
 6. Cache results to avoid unnecessary API calls
 7. Handle the filtered message appropriately in your UI
+
+## Testing the API
+
+For a comprehensive list of example API calls using both HTTPie and cURL, please refer to the [API Testing Guide](./api-testing.md). This guide includes examples for:
+
+- Getting an API key
+- Text filtering with various configurations
+- Image filtering
+- Testing with different configuration options
+- Accessing stats endpoint
+- Managing API keys
+- Health check endpoint
+- Error handling scenarios
+- Query parameter authentication
+
+The testing guide provides ready-to-use commands that you can directly copy and paste into your terminal to test all FilterX functionality.

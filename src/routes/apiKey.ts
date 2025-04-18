@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { asyncHandler } from "../middleware/errorHandler";
 import { getOrCreateApiKeyByIp, revokeApiKey } from "../services/apiKeyService";
 import { apiKeyRateLimiter } from "../middleware/rateLimiter";
-import { adminAuth } from "../middleware/auth";
+import { AppError } from "../middleware/errorHandler";
 
 const router = express.Router();
 
@@ -31,16 +31,15 @@ router.get(
 
 /**
  * POST /v1/apikey/revoke
- * Revoke an API key (admin only)
+ * Revoke an API key (publicly accessible)
  */
 router.post(
   "/revoke",
-  adminAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const { key } = req.body;
 
     if (!key) {
-      return res.status(400).json({ error: "API key is required" });
+      throw new AppError("API key is required", 400);
     }
 
     const result = await revokeApiKey(key);
@@ -48,9 +47,7 @@ router.post(
     if (result) {
       return res.status(200).json({ message: "API key revoked successfully" });
     } else {
-      return res
-        .status(404)
-        .json({ error: "API key not found or already revoked" });
+      throw new AppError("API key not found or already revoked", 404);
     }
   })
 );

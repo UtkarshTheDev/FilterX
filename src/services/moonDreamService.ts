@@ -1,18 +1,11 @@
-import axios from "axios";
 import { config } from "../config";
+import v1 from "moondream";
 
-// Create axios client
-const client = axios.create({
-  baseURL: config.moonDream.baseUrl,
-  headers: {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${config.moonDream.apiKey}`,
-  },
-  timeout: 30000, // 30 seconds for image processing
-});
+// Initialize the Moondream client
+const model = new v1({ apiKey: config.moonDream.apiKey });
 
 /**
- * Process image content through MoonDream 2B
+ * Process image content through MoonDream API
  * @param imageBase64 Base64 encoded image
  * @param filterConfig Configuration for content filtering
  * @returns Analysis result with flags and reasoning
@@ -26,19 +19,21 @@ export const analyzeImageContent = async (
   reason: string;
 }> => {
   try {
-    // Create prompt for image analysis
-    const prompt = createImagePrompt(filterConfig);
+    // Format the image for the API
+    const imageData = formatImageForAPI(imageBase64);
 
-    // Make API request
-    const response = await client.post("/analyze", {
-      image: imageBase64,
-      prompt: prompt,
-      max_tokens: 500,
+    // Create question for content moderation based on config
+    const question = createQuestionPrompt(filterConfig);
+
+    // Make API request using the Moondream package
+    const response = await model.query({
+      image: imageData,
+      question: question,
+      stream: false,
     });
 
-    // Parse the response
-    const aiResponse = response.data?.result || "";
-    return parseImageResponse(aiResponse);
+    // Parse the response to extract content moderation result
+    return parseImageResponse(response.answer);
   } catch (error) {
     console.error("Error calling MoonDream API:", error);
 
@@ -52,18 +47,30 @@ export const analyzeImageContent = async (
 };
 
 /**
+ * Format image data for MoonDream API
+ * @param imageBase64 Base64 encoded image
+ * @returns Formatted image data with data URI prefix for API
+ */
+const formatImageForAPI = (imageBase64: string): string => {
+  // If image already has a data URI prefix, use it as is
+  if (imageBase64.startsWith("data:image/")) {
+    return imageBase64;
+  }
+
+  // Add data URI prefix for JPEG (default format)
+  return `data:image/jpeg;base64,${imageBase64}`;
+};
+
+/**
  * Resize/optimize image before sending to API
  * @param imageBase64 Original base64 image
- * @param maxSize Maximum size in bytes
+ * @param maxSize Maximum size in bytes (10MB is API limit)
  * @returns Optimized base64 image
  */
 export const optimizeImage = (
   imageBase64: string,
-  maxSize: number = 1024 * 1024
+  maxSize: number = 10 * 1024 * 1024 // 10MB (MoonDream API limit)
 ): string => {
-  // Simple size check for now - more sophisticated resize would require
-  // image manipulation libraries which would add dependencies
-
   // Check if image is already under max size
   const sizeInBytes = Math.ceil((imageBase64.length * 3) / 4);
 
@@ -73,68 +80,46 @@ export const optimizeImage = (
 
   // For now, just warn about large images
   console.warn(
-    `Image size (${sizeInBytes} bytes) exceeds optimal size (${maxSize} bytes)`
+    `Image size (${sizeInBytes} bytes) exceeds maximum size (${maxSize} bytes)`
   );
 
-  // In a production system, we would resize the image here
+  // Truncate image if too large to avoid API errors
+  if (sizeInBytes > maxSize) {
+    const ratio = maxSize / sizeInBytes;
+    const newLength = Math.floor(imageBase64.length * ratio);
+    console.warn(`Truncating image to ${newLength} characters`);
+    return imageBase64.substring(0, newLength);
+  }
+
   return imageBase64;
 };
 
 /**
- * Create image analysis prompt based on filter configuration
+ * Create question prompt for MoonDream based on filter configuration
  * @param filterConfig Configuration for content filtering
- * @returns System prompt
+ * @returns Question prompt for content moderation
  */
-const createImagePrompt = (filterConfig: Record<string, boolean>): string => {
+const createQuestionPrompt = (
+  filterConfig: Record<string, boolean>
+): string => {
   // Base prompt
-  let prompt = `Analyze this image for content moderation.
-  
-Detect the following:
-- Explicit, adult, or NSFW content
-- Violent or graphic content`;
+  let prompt = `Analyze this image for content moderation. Is there any inappropriate content in this image?`;
 
-  // Add rules based on config
+  // Add specific checks based on config
   if (!filterConfig.allowAbuse) {
-    prompt += `
-- Offensive, hateful, or abusive imagery`;
-  }
-
-  if (!filterConfig.allowPhone) {
-    prompt += `
-- Phone numbers`;
-  }
-
-  if (!filterConfig.allowEmail) {
-    prompt += `
-- Email addresses`;
+    prompt += ` Check for offensive, hateful, or abusive imagery.`;
   }
 
   if (!filterConfig.allowPhysicalInformation) {
-    prompt += `
-- Physical addresses, location information
-- Credit card numbers, financial information
-- Government IDs, documents`;
+    prompt += ` Check for physical addresses, location information, credit card numbers, government IDs, or documents.`;
   }
 
   if (!filterConfig.allowSocialInformation) {
-    prompt += `
-- Social media handles or usernames
-- Profile information`;
+    prompt += ` Check for social media profiles, handles, or usernames.`;
   }
 
-  // Add format instruction
-  prompt += `
-
-Your response must be in this JSON format:
-{
-  "isViolation": true/false,
-  "flags": ["flag1", "flag2", ...],
-  "reason": "Detailed explanation of why the image violates rules"
-}
-
-Possible flags: "nsfw", "violence", "abuse", "phone", "email", "address", "pii", "creditCard", "socialMedia", "inappropriate".
-If there are no violations, set isViolation to false with an empty flags array.
-`;
+  // Add response format instructions
+  prompt += ` Respond in JSON format with isViolation (true/false), flags (array of specific issues), and reason (explanation). For flags, use: nsfw, violence, abuse, address, pii, creditCard, socialMedia, inappropriate.`;
 
   return prompt;
 };
