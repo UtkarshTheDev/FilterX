@@ -1,4 +1,4 @@
-# Guidelines for SanityAI Development
+# Guidelines for FilterX Development
 
 ## 1. API Design Best Practices
 
@@ -381,8 +381,8 @@
 ### Community Engagement
 
 - Create a GitHub repository for bug reports and feature requests.
-- Share updates on social media (e.g., "SanityAI now supports filtered messages!").
-- Engage developers with tutorials (e.g., "Build a Safe Chat App with SanityAI").
+- Share updates on social media (e.g., "FilterX now supports filtered messages!").
+- Engage developers with tutorials (e.g., "Build a Safe Chat App with FilterX").
 
 ### Continuous Improvement
 
@@ -392,4 +392,4 @@
 
 ## Conclusion
 
-These guidelines ensure SanityAI is a market-ready, secure, scalable, and high-performance API. By adhering to RESTful design principles, implementing robust security measures (IP-based API keys, rate limiting, HTTPS), optimizing scalability within free-tier limits (Render, Neon, Upstash), and applying best practices in coding and logic, SanityAI is positioned as a trusted, professional solution for content moderation in modern applications.
+These guidelines ensure FilterX is a market-ready, secure, scalable, and high-performance API. By adhering to RESTful design principles, implementing robust security measures (IP-based API keys, rate limiting, HTTPS), optimizing scalability within free-tier limits (Render, Neon, Upstash), and applying best practices in coding and logic, FilterX is positioned as a trusted, professional solution for content moderation in modern applications.

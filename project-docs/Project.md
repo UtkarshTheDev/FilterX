@@ -1,12 +1,12 @@
-# SanityAI: A Smart, Safe Content Moderation Solution
+# FilterX: A Smart, Safe Content Moderation Solution
 
 ## Overview
 
-SanityAI is an AI-powered content moderation API designed to help digital platforms—such as chat applications, forums, social networks, and online communities—maintain a safe, respectful, and privacy-compliant environment. Utilizing a combination of fast, rule-based regex filtering with advanced AI analysis, SanityAI efficiently detects, moderates, and filters harmful or sensitive content in real time.
+FilterX is an AI-powered content moderation API designed to help digital platforms—such as chat applications, forums, social networks, and online communities—maintain a safe, respectful, and privacy-compliant environment. Utilizing a combination of fast, rule-based regex filtering with advanced AI analysis, FilterX efficiently detects, moderates, and filters harmful or sensitive content in real time.
 
-## What is SanityAI?
+## What is FilterX?
 
-SanityAI serves as a robust content moderation tool that:
+FilterX serves as a robust content moderation tool that:
 
 - **Scans Content Quickly:** Uses customizable regex filters to detect abusive language, personal details, and other sensitive content.
 - **Provides Deep Analysis:** Leverages Akash Chat API and MoonDream 2B models to understand context and nuance, ensuring accurate moderation even in subtle cases.
@@ -16,7 +16,7 @@ SanityAI serves as a robust content moderation tool that:
 
 ## Who Is It For?
 
-SanityAI is built for:
+FilterX is built for:
 
 - **Developers** creating applications with user-generated content.
 - **Platform Owners** needing to maintain safe and compliant online spaces.
@@ -32,11 +32,11 @@ User-generated content can drive engagement but also introduce risks such as:
 - Inappropriate images or content that breaks platform rules.
 - Sequential attempts to share prohibited content across multiple messages.
 
-Manual moderation is slow and expensive. SanityAI solves these challenges by combining the speed of regex filtering with the contextual depth of AI analysis, ensuring harmful content is swiftly managed without sacrificing user experience.
+Manual moderation is slow and expensive. FilterX solves these challenges by combining the speed of regex filtering with the contextual depth of AI analysis, ensuring harmful content is swiftly managed without sacrificing user experience.
 
 ## How Does It Work?
 
-1. **Input:** A developer sends a request to the SanityAI API with:
+1. **Input:** A developer sends a request to the FilterX API with:
    - The text (for example, a chat message).
    - Optional images.
    - A configuration outlining allowed content and filtering rules.
@@ -61,7 +61,7 @@ Manual moderation is slow and expensive. SanityAI solves these challenges by com
 
 ## Extended Moderation Flags
 
-In addition to standard filtering options, SanityAI now provides enhanced flag support to protect even more sensitive information:
+In addition to standard filtering options, FilterX now provides enhanced flag support to protect even more sensitive information:
 
 - **allowPhysicalInformation:** Controls filtering of physical details such as addresses, credit card numbers, CVV codes, and other personal physical identifiers.
 - **allowSocialInformation:** Manages filtering of social data, including emails, phone numbers, Instagram IDs, and other social media handles.
@@ -95,4 +95,4 @@ In addition to standard filtering options, SanityAI now provides enhanced flag s
 
 ## Conclusion
 
-SanityAI is more than just a moderation tool—it is a comprehensive solution that ensures online spaces remain clean, engaging, and compliant with privacy standards. With fast regex-based filtering, deep AI analysis, extended flags including **allowPhysicalInformation** and **allowSocialInformation**, intelligent caching, and context-aware moderation, SanityAI offers flexible, real-time content moderation suited for modern digital platforms.
+FilterX is more than just a moderation tool—it is a comprehensive solution that ensures online spaces remain clean, engaging, and compliant with privacy standards. With fast regex-based filtering, deep AI analysis, extended flags including **allowPhysicalInformation** and **allowSocialInformation**, intelligent caching, and context-aware moderation, FilterX offers flexible, real-time content moderation suited for modern digital platforms.
