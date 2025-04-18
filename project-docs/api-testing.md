@@ -10,14 +10,14 @@ Before testing the content filtering endpoints, you need to obtain an API key.
 
 ```bash
 # Get an API key for your IP
-http GET http://localhost:3000/v1/apikey
+http GET http://localhost:8000/v1/apikey
 ```
 
 ### cURL
 
 ```bash
 # Get an API key for your IP
-curl -X GET http://localhost:3000/v1/apikey
+curl -X GET http://localhost:8000/v1/apikey
 ```
 
 Response:
@@ -38,19 +38,19 @@ Test the content filtering endpoint with text content.
 
 ```bash
 # Basic text filtering
-http POST http://localhost:3000/v1/filter \
+http POST http://localhost:8000/v1/filter \
   "Authorization: Bearer your-api-key" \
   text="This is a test message" \
   config:='{"allowAbuse": false, "allowPhone": false, "allowEmail": false}'
 
 # Text filtering with sensitive content
-http POST http://localhost:3000/v1/filter \
+http POST http://localhost:8000/v1/filter \
   "Authorization: Bearer your-api-key" \
   text="My phone number is 555-123-4567 and email is test@example.com" \
   config:='{"allowAbuse": false, "allowPhone": false, "allowEmail": false, "returnFilteredMessage": true}'
 
 # With message history for context
-http POST http://localhost:3000/v1/filter \
+http POST http://localhost:8000/v1/filter \
   "Authorization: Bearer your-api-key" \
   text="As I was saying earlier about that place" \
   oldMessages:='["My address is 123 Main St", "What were you saying about your address?"]' \
@@ -61,19 +61,19 @@ http POST http://localhost:3000/v1/filter \
 
 ```bash
 # Basic text filtering
-curl -X POST http://localhost:3000/v1/filter \
+curl -X POST http://localhost:8000/v1/filter \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"text":"This is a test message", "config":{"allowAbuse": false, "allowPhone": false, "allowEmail": false}}'
 
 # Text filtering with sensitive content
-curl -X POST http://localhost:3000/v1/filter \
+curl -X POST http://localhost:8000/v1/filter \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"text":"My phone number is 555-123-4567 and email is test@example.com", "config":{"allowAbuse": false, "allowPhone": false, "allowEmail": false, "returnFilteredMessage": true}}'
 
 # With message history for context
-curl -X POST http://localhost:3000/v1/filter \
+curl -X POST http://localhost:8000/v1/filter \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"text":"As I was saying earlier about that place", "oldMessages":["My address is 123 Main St", "What were you saying about your address?"], "config":{"allowPhysicalInformation": false}}'
@@ -87,13 +87,13 @@ Test the content filtering endpoint with image content.
 
 ```bash
 # Image filtering (replace image.jpg with your actual image file)
-http POST http://localhost:3000/v1/filter \
+http POST http://localhost:8000/v1/filter \
   "Authorization: Bearer your-api-key" \
   image="$(base64 -w 0 image.jpg)" \
   config:='{"allowAbuse": false}'
 
 # Combined text and image filtering
-http POST http://localhost:3000/v1/filter \
+http POST http://localhost:8000/v1/filter \
   "Authorization: Bearer your-api-key" \
   text="Check this image" \
   image="$(base64 -w 0 image.jpg)" \
@@ -104,13 +104,13 @@ http POST http://localhost:3000/v1/filter \
 
 ```bash
 # Image filtering (replace image.jpg with your actual image file)
-curl -X POST http://localhost:3000/v1/filter \
+curl -X POST http://localhost:8000/v1/filter \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d "{\"image\":\"$(base64 -w 0 image.jpg)\", \"config\":{\"allowAbuse\": false}}"
 
 # Combined text and image filtering
-curl -X POST http://localhost:3000/v1/filter \
+curl -X POST http://localhost:8000/v1/filter \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d "{\"text\":\"Check this image\", \"image\":\"$(base64 -w 0 image.jpg)\", \"config\":{\"allowAbuse\": false, \"returnFilteredMessage\": true}}"
@@ -124,13 +124,13 @@ These examples demonstrate different configurations for filtering.
 
 ```bash
 # Allow phone numbers but block emails
-http POST http://localhost:3000/v1/filter \
+http POST http://localhost:8000/v1/filter \
   "Authorization: Bearer your-api-key" \
   text="Contact me at 555-123-4567 or user@example.com" \
   config:='{"allowPhone": true, "allowEmail": false, "returnFilteredMessage": true}'
 
 # Allow social information but block physical information
-http POST http://localhost:3000/v1/filter \
+http POST http://localhost:8000/v1/filter \
   "Authorization: Bearer your-api-key" \
   text="Follow me on @twitterhandle and my address is 123 Main St" \
   config:='{"allowSocialInformation": true, "allowPhysicalInformation": false, "returnFilteredMessage": true}'
@@ -140,13 +140,13 @@ http POST http://localhost:3000/v1/filter \
 
 ```bash
 # Allow phone numbers but block emails
-curl -X POST http://localhost:3000/v1/filter \
+curl -X POST http://localhost:8000/v1/filter \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"text":"Contact me at 555-123-4567 or user@example.com", "config":{"allowPhone": true, "allowEmail": false, "returnFilteredMessage": true}}'
 
 # Allow social information but block physical information
-curl -X POST http://localhost:3000/v1/filter \
+curl -X POST http://localhost:8000/v1/filter \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"text":"Follow me on @twitterhandle and my address is 123 Main St", "config":{"allowSocialInformation": true, "allowPhysicalInformation": false, "returnFilteredMessage": true}}'
@@ -160,14 +160,14 @@ Get public statistics about FilterX usage.
 
 ```bash
 # Get stats
-http GET http://localhost:3000/admin/stats
+http GET http://localhost:8000/admin/stats
 ```
 
 ### cURL
 
 ```bash
 # Get stats
-curl -X GET http://localhost:3000/admin/stats
+curl -X GET http://localhost:8000/admin/stats
 ```
 
 Response:
@@ -207,7 +207,7 @@ Response:
 
 ```bash
 # Revoke an API key
-http POST http://localhost:3000/v1/apikey/revoke \
+http POST http://localhost:8000/v1/apikey/revoke \
   key="the-api-key-to-revoke"
 ```
 
@@ -215,7 +215,7 @@ http POST http://localhost:3000/v1/apikey/revoke \
 
 ```bash
 # Revoke an API key
-curl -X POST http://localhost:3000/v1/apikey/revoke \
+curl -X POST http://localhost:8000/v1/apikey/revoke \
   -H "Content-Type: application/json" \
   -d '{"key":"the-api-key-to-revoke"}'
 ```
@@ -236,14 +236,14 @@ Test the health check endpoint to verify the API is running properly.
 
 ```bash
 # Check API health
-http GET http://localhost:3000/health
+http GET http://localhost:8000/health
 ```
 
 ### cURL
 
 ```bash
 # Check API health
-curl -X GET http://localhost:3000/health
+curl -X GET http://localhost:8000/health
 ```
 
 Response:
@@ -262,11 +262,11 @@ These examples demonstrate error responses.
 
 ```bash
 # Missing required content
-http POST http://localhost:3000/v1/filter \
+http POST http://localhost:8000/v1/filter \
   "Authorization: Bearer your-api-key"
 
 # Invalid API key
-http POST http://localhost:3000/v1/filter \
+http POST http://localhost:8000/v1/filter \
   "Authorization: Bearer invalid-key" \
   text="Test message"
 
@@ -278,13 +278,13 @@ http POST http://localhost:3000/v1/filter \
 
 ```bash
 # Missing required content
-curl -X POST http://localhost:3000/v1/filter \
+curl -X POST http://localhost:8000/v1/filter \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{}'
 
 # Invalid API key
-curl -X POST http://localhost:3000/v1/filter \
+curl -X POST http://localhost:8000/v1/filter \
   -H "Authorization: Bearer invalid-key" \
   -H "Content-Type: application/json" \
   -d '{"text":"Test message"}'
@@ -298,7 +298,7 @@ Instead of using the Authorization header, you can also use a query parameter fo
 
 ```bash
 # Using query parameter for API key
-http POST "http://localhost:3000/v1/filter?apiKey=your-api-key" \
+http POST "http://localhost:8000/v1/filter?apiKey=your-api-key" \
   text="This is a test message"
 ```
 
@@ -306,7 +306,7 @@ http POST "http://localhost:3000/v1/filter?apiKey=your-api-key" \
 
 ```bash
 # Using query parameter for API key
-curl -X POST "http://localhost:3000/v1/filter?apiKey=your-api-key" \
+curl -X POST "http://localhost:8000/v1/filter?apiKey=your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"text":"This is a test message"}'
 ```

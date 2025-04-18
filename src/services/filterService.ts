@@ -1,5 +1,4 @@
-import { scanTextWithRegex, generateFilteredMessage } from "./regexService";
-import { analyzeTextContent } from "./akashChatService";
+import { analyzeTextContent, isAIReviewNeeded } from "./akashChatService";
 import { analyzeImageContent, optimizeImage } from "./moonDreamService";
 import {
   generateCacheKey,
@@ -8,6 +7,7 @@ import {
   setCachedResponse,
 } from "../utils/cache";
 import { trackFilterRequest } from "./statsService";
+import { statsIncrement } from "../utils/redis";
 
 // Default configuration
 const DEFAULT_CONFIG = {
@@ -17,6 +17,8 @@ const DEFAULT_CONFIG = {
   allowPhysicalInformation: false,
   allowSocialInformation: false,
   returnFilteredMessage: false,
+  generateFilteredContent: false,
+  analyzeImages: false,
 };
 
 // Interface for filter request
@@ -36,7 +38,7 @@ export interface FilterResponse {
 }
 
 /**
- * Main filter function that combines regex, AI, and caching
+ * Main filter function that uses AI for content filtering
  * @param request Filter request
  * @param userId User ID for tracking
  * @returns Filter response
@@ -47,6 +49,12 @@ export const filterContent = async (
 ): Promise<FilterResponse> => {
   // Start timing
   const startTime = Date.now();
+  console.log(`[Filter] Starting content filter for user: ${userId}`);
+  console.log(
+    `[Filter] Request text (preview): "${request.text?.substring(0, 30) || ""}${
+      request.text?.length > 30 ? "..." : ""
+    }"${request.image ? " with image" : ""}`
+  );
 
   // Default response
   let response: FilterResponse = {
@@ -57,6 +65,7 @@ export const filterContent = async (
 
   // Validate input
   if (!request.text && !request.image) {
+    console.log(`[Filter] Invalid request: No content provided`);
     response.blocked = true;
     response.reason = "No content provided (text or image required)";
     return response;
@@ -67,11 +76,15 @@ export const filterContent = async (
     ...DEFAULT_CONFIG,
     ...(request.config || {}),
   };
+  console.log(`[Filter] Using configuration:`, JSON.stringify(config));
 
   // Limit old messages to 15
   const oldMessages = Array.isArray(request.oldMessages)
     ? request.oldMessages.slice(-15)
     : [];
+  console.log(
+    `[Filter] Processing with ${oldMessages.length} previous messages for context`
+  );
 
   // Generate a cache key
   const imageHash = request.image ? generateImageHash(request.image) : null;
@@ -81,14 +94,18 @@ export const filterContent = async (
     oldMessages,
     imageHash || ""
   );
+  console.log(`[Filter] Generated cache key: ${cacheKey.substring(0, 10)}...`);
 
-  // Check cache for previous result
+  // Check cache for previous result - optimized for speed
   const cachedResponse = await getCachedResponse(cacheKey);
   let isCached = false;
 
   if (cachedResponse) {
     isCached = true;
     response = cachedResponse;
+    console.log(
+      `[Filter] Cache hit! Using cached response with ${response.flags.length} flags`
+    );
 
     // Track cached request
     await trackFilterRequest(
@@ -99,97 +116,154 @@ export const filterContent = async (
       true
     );
 
+    // Track cache hits for monitoring
+    await statsIncrement("filter:cache:hits");
+
     return response;
   }
+  console.log(`[Filter] Cache miss, proceeding with content analysis`);
 
-  // Start with regex filtering for text
+  // Track cache misses for monitoring
+  await statsIncrement("filter:cache:misses");
+
+  // Process text content
   if (request.text) {
-    const regexResult = scanTextWithRegex(request.text, config);
+    // First check if AI review is actually needed using the pre-screening method
+    if (!isAIReviewNeeded(request.text, config)) {
+      console.log(
+        `[Filter] Pre-screening determined no AI review needed - content is safe`
+      );
+      // Since pre-screening found nothing concerning, we can skip AI analysis entirely
+      response.blocked = false;
+      response.flags = [];
+      response.reason = "Content passed pre-screening checks";
 
-    if (regexResult.hasMatch) {
-      response.blocked = true;
-      response.flags = regexResult.flags;
-      response.reason = `Detected: ${regexResult.flags.join(", ")}`;
-
-      // Generate filtered message if requested
+      // If filtered message was requested, just return the original text
       if (config.returnFilteredMessage) {
-        response.filteredMessage = generateFilteredMessage(
-          request.text,
-          regexResult.matches
-        );
+        response.filteredMessage = request.text;
       }
 
-      // Cache the result
-      await setCachedResponse(cacheKey, response);
-
-      // Track request
-      await trackFilterRequest(
-        userId,
-        response.blocked,
-        response.flags,
-        Date.now() - startTime,
-        false
+      // Track pre-screening success for monitoring
+      await statsIncrement("filter:prescreening:handled");
+      await statsIncrement("filter:prescreening:allowed");
+    } else {
+      // Pre-screening indicated potential concerns - proceed with AI analysis
+      console.log(
+        `[Filter] Pre-screening indicated potential concerns, proceeding with AI analysis`
       );
 
-      return response;
-    }
+      // Track AI analysis for monitoring
+      await statsIncrement("filter:ai:called");
 
-    // If regex doesn't find anything, proceed to AI analysis
-    try {
-      const aiResult = await analyzeTextContent(
-        request.text,
-        oldMessages,
-        config
-      );
+      const aiStartTime = Date.now();
 
-      if (aiResult.isViolation) {
-        response.blocked = true;
-        response.flags = aiResult.flags;
-        response.reason = aiResult.reason;
+      try {
+        const aiResult = await analyzeTextContent(request.text, oldMessages, {
+          ...config,
+          // Add flag for filtered content if requested
+          generateFilteredContent: config.returnFilteredMessage,
+        });
 
-        // Generate filtered message if requested
-        if (config.returnFilteredMessage) {
-          // We don't have the exact matches from AI, so use a simple placeholder
-          response.filteredMessage = request.text
-            .split(" ")
-            .map((word) =>
-              aiResult.flags.some((flag) =>
-                word.toLowerCase().includes(flag.toLowerCase())
-              )
-                ? "[FILTERED]"
-                : word
-            )
-            .join(" ");
+        // Track AI processing time
+        const aiProcessingTime = Date.now() - aiStartTime;
+        console.log(`[Filter] AI analysis completed in ${aiProcessingTime}ms`);
+
+        if (aiResult.isViolation) {
+          console.log(
+            `[Filter] AI detected violation with flags: [${aiResult.flags.join(
+              ", "
+            )}]`
+          );
+          response.blocked = true;
+          response.flags = aiResult.flags;
+          response.reason = aiResult.reason;
+
+          // Use filtered message if available and requested
+          if (config.returnFilteredMessage && aiResult.filteredContent) {
+            console.log(`[Filter] Using AI-generated filtered message`);
+            response.filteredMessage = aiResult.filteredContent;
+          }
+
+          // Track AI result for monitoring
+          await statsIncrement("filter:ai:blocked");
+        } else {
+          console.log(`[Filter] AI analysis found no violations`);
+          // Track AI result for monitoring
+          await statsIncrement("filter:ai:allowed");
         }
+      } catch (error) {
+        console.error("[Filter] Error in AI text analysis:", error);
+        // Don't block content on AI error
+        response.reason = "Content passed checks (AI service unavailable)";
+        // Track AI errors for monitoring
+        await statsIncrement("filter:ai:errors");
       }
-    } catch (error) {
-      console.error("Error in AI text analysis:", error);
-      // Don't block content on AI error if regex passed
     }
   }
 
-  // Process image if provided
+  // Process image if provided and text wasn't blocked
   if (request.image && !response.blocked) {
-    try {
-      // Optimize image before sending to API
-      const optimizedImage = optimizeImage(request.image);
+    console.log(`[Filter] Processing image content`);
 
-      // Analyze image content
-      const imageResult = await analyzeImageContent(optimizedImage, config);
+    // Track image analysis for monitoring
+    await statsIncrement("filter:image:called");
+
+    try {
+      // Optimize image first for faster processing
+      const optimizedImage = await optimizeImage(request.image);
+      console.log(`[Filter] Image optimized successfully`);
+
+      // Analyze the optimized image
+      const imageResult = await analyzeImageContent(optimizedImage);
+      console.log(
+        `[Filter] Image analysis complete with result:`,
+        JSON.stringify({
+          isViolation: imageResult.isViolation,
+          flags: imageResult.flags,
+          reason: imageResult.reason,
+        })
+      );
 
       if (imageResult.isViolation) {
+        console.log(`[Filter] Image flagged as inappropriate`);
         response.blocked = true;
-        response.flags.push(...imageResult.flags);
-        response.reason = imageResult.reason;
+        response.reason =
+          imageResult.reason || "Image contains inappropriate content";
+
+        // Add image-specific flags
+        imageResult.flags.forEach((flag) => {
+          const flagName = `image_${flag.toLowerCase().replace(/\s+/g, "_")}`;
+          if (!response.flags.includes(flagName)) {
+            response.flags.push(flagName);
+          }
+        });
+        console.log(
+          `[Filter] Added image flags: [${response.flags
+            .filter((f) => f.startsWith("image_"))
+            .join(", ")}]`
+        );
+
+        // Track image result for monitoring
+        await statsIncrement("filter:image:blocked");
+      } else {
+        // Track image result for monitoring
+        await statsIncrement("filter:image:allowed");
       }
     } catch (error) {
-      console.error("Error in image analysis:", error);
-      // Don't block on error if text passed
+      console.error("[Filter] Error in image analysis:", error);
+      // Don't block content on image analysis error
+      // Track image errors for monitoring
+      await statsIncrement("filter:image:errors");
     }
   }
 
-  // Cache the result
-  await setCachedResponse(cacheKey, response);
+  // Cache the result if not already cached
+  if (!isCached) {
+    await setCachedResponse(cacheKey, response);
+    console.log(
+      `[Filter] Cached final result for key: ${cacheKey.substring(0, 10)}...`
+    );
+  }
 
   // Track request
   await trackFilterRequest(
@@ -199,6 +273,25 @@ export const filterContent = async (
     Date.now() - startTime,
     false
   );
+
+  // Add processing time to stats for monitoring
+  const processingTime = Date.now() - startTime;
+  console.log(
+    `[Filter] Content filtering complete in ${processingTime}ms - ${
+      response.blocked ? "BLOCKED" : "ALLOWED"
+    }`
+  );
+
+  // Track performance metrics for monitoring service health
+  if (processingTime < 100) {
+    await statsIncrement("filter:performance:under100ms");
+  } else if (processingTime < 500) {
+    await statsIncrement("filter:performance:under500ms");
+  } else if (processingTime < 1000) {
+    await statsIncrement("filter:performance:under1000ms");
+  } else {
+    await statsIncrement("filter:performance:over1000ms");
+  }
 
   return response;
 };

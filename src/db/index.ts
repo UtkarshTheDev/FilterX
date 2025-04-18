@@ -26,7 +26,7 @@ export const getPool = (): Pool => {
     database: config.db.database,
     ssl: config.db.ssl ? { rejectUnauthorized: false } : false,
     max: 10, // Maximum number of clients in the pool (reduced from 20)
-    idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+    idleTimeoutMillis: 80000, // Close idle clients after 30 seconds
     connectionTimeoutMillis: 5000, // Return an error after 5 seconds if connection could not be established
   });
 

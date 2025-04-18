@@ -9,7 +9,7 @@ import {
 } from "../services/filterService";
 
 /**
- * Controller for handling content filtering operations
+ * Controller for handling content filtering operations - optimized for speed
  */
 export const filterController = {
   /**
@@ -18,6 +18,9 @@ export const filterController = {
    */
   filterContentRequest: asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
+      // Start timer for performance tracking
+      const startTime = performance.now();
+
       // Extract request data
       const { text, image, config, oldMessages } = req.body;
 
@@ -35,6 +38,12 @@ export const filterController = {
         req.userId || "anonymous"
       );
 
+      // Calculate processing time
+      const processingTime = Math.round(performance.now() - startTime);
+
+      // Add processing time to header for monitoring
+      res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
       // Send response
       res.status(200).json(result);
     }
@@ -46,6 +55,9 @@ export const filterController = {
    */
   filterBatchRequest: asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
+      // Start timer for performance tracking
+      const startTime = performance.now();
+
       // Get batch items from request
       const { items } = req.body;
 
@@ -57,7 +69,7 @@ export const filterController = {
         throw new AppError("Maximum 10 items per batch request", 400);
       }
 
-      // Process each item in parallel
+      // Process each item in parallel for maximum speed
       const results = await Promise.all(
         items.map(async (item) => {
           // Create filter request with validated input
@@ -73,6 +85,12 @@ export const filterController = {
         })
       );
 
+      // Calculate processing time
+      const processingTime = Math.round(performance.now() - startTime);
+
+      // Add processing time to header for monitoring
+      res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
       // Send response
       res.status(200).json({ results });
     }
@@ -84,6 +102,9 @@ export const filterController = {
    */
   filterTextRequest: asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
+      // Start timer for performance tracking
+      const startTime = performance.now();
+
       // Extract request data
       const { text, config, oldMessages } = req.body;
 
@@ -104,6 +125,12 @@ export const filterController = {
         req.userId || "anonymous"
       );
 
+      // Calculate processing time
+      const processingTime = Math.round(performance.now() - startTime);
+
+      // Add processing time to header for monitoring
+      res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
       // Send response
       res.status(200).json(result);
     }
@@ -115,6 +142,9 @@ export const filterController = {
    */
   filterImageRequest: asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
+      // Start timer for performance tracking
+      const startTime = performance.now();
+
       // Extract request data
       const { image, config } = req.body;
 
@@ -134,6 +164,12 @@ export const filterController = {
         filterRequest,
         req.userId || "anonymous"
       );
+
+      // Calculate processing time
+      const processingTime = Math.round(performance.now() - startTime);
+
+      // Add processing time to header for monitoring
+      res.setHeader("X-Processing-Time", `${processingTime}ms`);
 
       // Send response
       res.status(200).json(result);

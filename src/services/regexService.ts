@@ -5,7 +5,7 @@ import { config } from "../config";
 const DEFAULT_REGEX_PATTERNS = {
   phone: {
     pattern:
-      "\\b\\d{10}\\b|\\b\\d{3}[-.]\\d{3}[-.]\\d{4}\\b|\\b\\(\\d{3}\\)\\s*\\d{3}[-.]\\d{4}\\b",
+      "\\b(?:\\+?\\d{1,3}[-.\\s]?)?(?:\\(\\d{3}\\)[-.\\s]?|\\d{3}[-.\\s]?)\\d{3}[-.\\s]?\\d{4}\\b|\\b\\d{10}\\b",
     description: "Phone numbers in various formats",
   },
   email: {
@@ -241,25 +241,42 @@ const findAllMatches = (text: string, regex: RegExp): string[] => {
  * Generate a filtered version of text with sensitive content replaced
  * @param text Original text
  * @param matches Matches object with patterns and their matches
- * @param filterMarker Text to replace sensitive content with
+ * @param filterMarker Text to replace sensitive content with, or null to use asterisks
  * @returns Filtered text
  */
 export const generateFilteredMessage = (
   text: string,
   matches: Record<string, string[]>,
-  filterMarker: string = "[FILTERED]"
+  filterMarker: string | null = null
 ): string => {
   let filteredText = text;
 
-  // Flatten all matches into a single array
-  const allMatches = Object.values(matches).flat();
+  // Sort matches by length (descending) to avoid partial replacements
+  const allMatches = Object.values(matches)
+    .flat()
+    .sort((a, b) => b.length - a.length);
 
-  // Replace each match with the filter marker
+  // Replace each match with the filter marker or asterisks
   allMatches.forEach((match) => {
-    filteredText = filteredText.replace(
-      new RegExp(escapeRegExp(match), "g"),
-      filterMarker
-    );
+    // Escape special regex characters
+    const safeMatch = escapeRegExp(match);
+
+    // If filterMarker is null, use asterisks matching the length of the content
+    const replacement = filterMarker || "*".repeat(Math.min(match.length, 8));
+
+    // Try to replace with word boundaries first
+    const withBoundaries = new RegExp(`\\b${safeMatch}\\b`, "g");
+    const beforeReplace = filteredText;
+    filteredText = filteredText.replace(withBoundaries, replacement);
+
+    // If no replacement was made or the match doesn't work with word boundaries
+    // (like email@example.com), try without boundaries
+    if (beforeReplace === filteredText || filteredText.includes(match)) {
+      filteredText = filteredText.replace(
+        new RegExp(safeMatch, "g"),
+        replacement
+      );
+    }
   });
 
   return filteredText;

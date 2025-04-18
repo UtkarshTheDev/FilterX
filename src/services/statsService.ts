@@ -17,6 +17,10 @@ const KEY_PREFIXES = {
   LATENCY: "stats:latency:",
   DAILY: "stats:daily:",
   CACHE_HIT_RATE: "stats:cache:hitrate",
+  PRESCREENING: "stats:prescreening:",
+  AI_PROCESSING: "stats:ai:",
+  IMAGE_PROCESSING: "stats:image:",
+  PERFORMANCE: "stats:performance:",
 };
 
 /**
@@ -98,6 +102,24 @@ export const getSummaryStats = async () => {
     `${KEY_PREFIXES.DAILY}${today}`,
     `${KEY_PREFIXES.CACHE_HIT_RATE}:hits`,
     `${KEY_PREFIXES.CACHE_HIT_RATE}:total`,
+    // New optimization metrics
+    "filter:cache:hits",
+    "filter:cache:misses",
+    "filter:prescreening:handled",
+    "filter:prescreening:allowed",
+    "filter:ai:called",
+    "filter:ai:blocked",
+    "filter:ai:allowed",
+    "filter:ai:errors",
+    "filter:image:called",
+    "filter:image:blocked",
+    "filter:image:allowed",
+    "filter:image:errors",
+    // Performance metrics
+    "filter:performance:under100ms",
+    "filter:performance:under500ms",
+    "filter:performance:under1000ms",
+    "filter:performance:over1000ms",
   ];
 
   try {
@@ -115,6 +137,43 @@ export const getSummaryStats = async () => {
     // Get flag stats
     const flagStats = await getFlagStats();
 
+    // Fetch optimization metrics
+    const filterCacheHits = parseInt(values[7] || "0", 10);
+    const filterCacheMisses = parseInt(values[8] || "0", 10);
+    const filterTotal = filterCacheHits + filterCacheMisses;
+    const filterCacheRate =
+      filterTotal > 0 ? Math.round((filterCacheHits / filterTotal) * 100) : 0;
+
+    const prescreenHandled = parseInt(values[9] || "0", 10);
+    const prescreenAllowed = parseInt(values[10] || "0", 10);
+
+    const aiCalled = parseInt(values[11] || "0", 10);
+    const aiBlocked = parseInt(values[12] || "0", 10);
+    const aiAllowed = parseInt(values[13] || "0", 10);
+    const aiErrors = parseInt(values[14] || "0", 10);
+    const aiTotal = aiBlocked + aiAllowed;
+    const aiBlockRate =
+      aiTotal > 0 ? Math.round((aiBlocked / aiTotal) * 100) : 0;
+
+    const imageCalled = parseInt(values[15] || "0", 10);
+    const imageBlocked = parseInt(values[16] || "0", 10);
+    const imageAllowed = parseInt(values[17] || "0", 10);
+    const imageErrors = parseInt(values[18] || "0", 10);
+
+    // Performance metrics
+    const under100ms = parseInt(values[19] || "0", 10);
+    const under500ms = parseInt(values[20] || "0", 10);
+    const under1000ms = parseInt(values[21] || "0", 10);
+    const over1000ms = parseInt(values[22] || "0", 10);
+    const totalPerf = under100ms + under500ms + under1000ms + over1000ms;
+
+    // Calculate optimization rates
+    const requestsSkippedByPrescreen =
+      totalPerf > 0 ? Math.round((prescreenHandled / totalPerf) * 100) : 0;
+
+    const requestsHandledByAI =
+      totalPerf > 0 ? Math.round((aiCalled / totalPerf) * 100) : 0;
+
     return {
       totalRequests: parseInt(values[0] || "0", 10),
       filteredRequests: parseInt(values[1] || "0", 10),
@@ -124,6 +183,48 @@ export const getSummaryStats = async () => {
       cacheHitRate: cacheHitRate,
       latency: latencyStats,
       flags: flagStats,
+      // Add optimization stats
+      optimization: {
+        cache: {
+          hits: filterCacheHits,
+          misses: filterCacheMisses,
+          hitRate: filterCacheRate,
+        },
+        prescreening: {
+          handled: prescreenHandled,
+          allowed: prescreenAllowed,
+          handledPercent: requestsSkippedByPrescreen,
+        },
+        ai: {
+          called: aiCalled,
+          blocked: aiBlocked,
+          allowed: aiAllowed,
+          errors: aiErrors,
+          blockRate: aiBlockRate,
+          usagePercent: requestsHandledByAI,
+        },
+        image: {
+          called: imageCalled,
+          blocked: imageBlocked,
+          allowed: imageAllowed,
+          errors: imageErrors,
+        },
+        performance: {
+          under100ms,
+          under500ms,
+          under1000ms,
+          over1000ms,
+          responseTimeBreakdown:
+            totalPerf > 0
+              ? {
+                  under100ms: Math.round((under100ms / totalPerf) * 100),
+                  under500ms: Math.round((under500ms / totalPerf) * 100),
+                  under1000ms: Math.round((under1000ms / totalPerf) * 100),
+                  over1000ms: Math.round((over1000ms / totalPerf) * 100),
+                }
+              : { under100ms: 0, under500ms: 0, under1000ms: 0, over1000ms: 0 },
+        },
+      },
     };
   } catch (error) {
     console.error("Error getting summary stats:", error);

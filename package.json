@@ -37,6 +37,8 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/mocha": "^10.0.10",
     "axios": "^1.8.4",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",

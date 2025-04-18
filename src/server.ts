@@ -8,7 +8,7 @@ import {
 } from "./utils/redis";
 import { isDatabaseHealthy, pool } from "./db";
 
-const PORT = config.port || 3000;
+const PORT = config.port || 8000;
 
 /**
  * Initialize core services
