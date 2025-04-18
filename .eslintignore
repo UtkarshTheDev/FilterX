@@ -1,0 +1,24 @@
+# Build output
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# Configuration files
+.github/
+.husky/
+.vscode/
+
+# Package manager lock files
+package-lock.json
+yarn.lock
+bun.lockb
+
+# Environment files
+.env
+.env.*
+
+# Miscellaneous
+coverage/
+*.log 

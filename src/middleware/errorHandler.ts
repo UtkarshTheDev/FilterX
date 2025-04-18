@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import logger from "../utils/logger";
 
 // Custom error class with status code
 export class AppError extends Error {
@@ -19,11 +20,20 @@ export const errorHandler = (
   res: Response,
   next: NextFunction
 ) => {
-  console.error(`Error: ${err}`);
-
-  // Default to 500 internal server error if no status code is available
+  // Get error details
   const statusCode = "statusCode" in err ? err.statusCode : 500;
   const message = err.message || "Internal Server Error";
+  const path = req.path;
+  const method = req.method;
+
+  // Log error with appropriate level based on status code
+  if (statusCode >= 500) {
+    logger.error(`${method} ${path} - ${statusCode} ${message}`, err);
+  } else if (statusCode >= 400) {
+    logger.warn(`${method} ${path} - ${statusCode} ${message}`);
+  } else {
+    logger.debug(`${method} ${path} - ${statusCode} ${message}`);
+  }
 
   // Don't expose stack trace in production
   const errorResponse: any = {
@@ -39,6 +49,10 @@ export const errorHandler = (
 
 // Catch 404 errors
 export const notFoundHandler = (req: Request, res: Response) => {
+  const path = req.path;
+  const method = req.method;
+
+  logger.warn(`${method} ${path} - 404 Resource Not Found`);
   res.status(404).json({ error: "Resource not found" });
 };
 

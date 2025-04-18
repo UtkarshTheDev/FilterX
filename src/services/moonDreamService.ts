@@ -1,8 +1,8 @@
 import { config } from "../config";
-import v1 from "moondream";
+import { vl } from "moondream";
 
 // Initialize the Moondream client
-const model = new v1({ apiKey: config.moonDream.apiKey });
+const model = new vl({ apiKey: config.moonDream.apiKey });
 
 /**
  * Process image content through MoonDream API

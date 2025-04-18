@@ -1,30 +1,22 @@
 import express from "express";
-import type { Request, Response } from "express";
-import { body, validationResult } from "express-validator";
-import { asyncHandler } from "../middleware/errorHandler";
+import { body } from "express-validator";
 import { apiKeyAuth } from "../middleware/auth";
 import { filterRateLimiter } from "../middleware/rateLimiter";
-import {
-  filterContent,
-  validateFilterConfig,
-  validateOldMessages,
-} from "../services/filterService";
-import { AppError } from "../middleware/errorHandler";
+import { asyncHandler } from "../middleware/errorHandler";
+import { filterController } from "../controllers/filterController";
 
 const router = express.Router();
 
 /**
  * POST /v1/filter
- * Filter content for moderation
+ * Filter content for moderation (text and/or image)
  */
 router.post(
   "/",
   // Apply rate limiting
   filterRateLimiter,
-
   // Apply API key authentication
   apiKeyAuth,
-
   // Validate request
   [
     body("text").optional().isString().withMessage("Text must be a string"),
@@ -41,48 +33,94 @@ router.post(
       .isArray()
       .withMessage("oldMessages must be an array"),
   ],
+  // Process the filter request
+  filterController.filterContentRequest
+);
 
-  // Handler
-  asyncHandler(async (req: Request, res: Response) => {
-    // Validate request body
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      throw new AppError(`Invalid request: ${errors.array()[0].msg}`, 400);
-    }
+/**
+ * POST /v1/filter/batch
+ * Filter multiple content items in a single request
+ */
+router.post(
+  "/batch",
+  // Apply rate limiting
+  filterRateLimiter,
+  // Apply API key authentication
+  apiKeyAuth,
+  // Validate request
+  [
+    body("items")
+      .isArray()
+      .withMessage("Items must be an array")
+      .notEmpty()
+      .withMessage("Items array cannot be empty"),
+    body("items.*.text")
+      .optional()
+      .isString()
+      .withMessage("Text must be a string"),
+    body("items.*.image")
+      .optional()
+      .isString()
+      .withMessage("Image must be a base64 string"),
+    body("items.*.config")
+      .optional()
+      .isObject()
+      .withMessage("Config must be an object"),
+    body("items.*.oldMessages")
+      .optional()
+      .isArray()
+      .withMessage("oldMessages must be an array"),
+  ],
+  // Process the batch filter request
+  filterController.filterBatchRequest
+);
 
-    // Require at least text or image
-    if (!req.body.text && !req.body.image) {
-      throw new AppError("Either text or image is required", 400);
-    }
+/**
+ * POST /v1/filter/text
+ * Filter text-only content
+ */
+router.post(
+  "/text",
+  // Apply rate limiting
+  filterRateLimiter,
+  // Apply API key authentication
+  apiKeyAuth,
+  // Validate request
+  [
+    body("text").isString().withMessage("Text content is required"),
+    body("config")
+      .optional()
+      .isObject()
+      .withMessage("Config must be an object"),
+    body("oldMessages")
+      .optional()
+      .isArray()
+      .withMessage("oldMessages must be an array"),
+  ],
+  // Process the text filter request
+  filterController.filterTextRequest
+);
 
-    // Validate old messages array (limit to 15)
-    if (req.body.oldMessages && req.body.oldMessages.length > 15) {
-      throw new AppError("Maximum 15 previous messages allowed", 400);
-    }
-
-    // Validate and process content
-    const { text, image, config, oldMessages } = req.body;
-
-    // Validate config
-    const validatedConfig = validateFilterConfig(config);
-
-    // Validate old messages
-    const validatedOldMessages = validateOldMessages(oldMessages);
-
-    // Filter content
-    const result = await filterContent(
-      {
-        text: text || "",
-        image: image,
-        config: validatedConfig,
-        oldMessages: validatedOldMessages,
-      },
-      req.userId || "anonymous"
-    );
-
-    // Send response
-    res.status(200).json(result);
-  })
+/**
+ * POST /v1/filter/image
+ * Filter image-only content
+ */
+router.post(
+  "/image",
+  // Apply rate limiting
+  filterRateLimiter,
+  // Apply API key authentication
+  apiKeyAuth,
+  // Validate request
+  [
+    body("image").isString().withMessage("Image content is required"),
+    body("config")
+      .optional()
+      .isObject()
+      .withMessage("Config must be an object"),
+  ],
+  // Process the image filter request
+  filterController.filterImageRequest
 );
 
 export default router;

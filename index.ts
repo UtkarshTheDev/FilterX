@@ -6,7 +6,12 @@
  */
 
 import "./src/server";
+import logger from "./src/utils/logger";
 
-console.log(
-  "FilterX server is running. Check http://localhost:3000/health for status."
-);
+// Additional startup info is handled by the logger in server.ts
+// This is just a fallback message in case the import above doesn't show logs
+setTimeout(() => {
+  logger.info(
+    "FilterX server is running. Check /health endpoint for detailed status."
+  );
+}, 1000);

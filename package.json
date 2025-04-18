@@ -11,7 +11,10 @@
     "migrate": "bun run scripts/migrate.ts",
     "test": "bun test",
     "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "lint:report": "eslint src --ext .ts --output-file eslint-report.json --format json",
     "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
     "analyze": "bun build src/server.ts --analyze",
     "clean": "rm -rf dist",
     "docker:build": "docker build -t filterx:latest .",
@@ -24,7 +27,11 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/morgan": "^1.9.9",
-    "@types/pg": "^8.11.13"
+    "@types/pg": "^8.11.13",
+    "@typescript-eslint/eslint-plugin": "^8.30.1",
+    "@typescript-eslint/parser": "^8.30.1",
+    "eslint": "^9.24.0",
+    "eslint-config-prettier": "^10.1.2"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"

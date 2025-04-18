@@ -1,4 +1,5 @@
 declare module "moondream" {
   const model: any;
-  export default model;
+  const vl: any;
+  export { model, vl };
 }

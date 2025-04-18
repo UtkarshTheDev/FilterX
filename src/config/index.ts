@@ -16,8 +16,7 @@ export interface Config {
     ssl: boolean;
   };
   redis: {
-    url: string;
-    password: string;
+    uri: string;
   };
   akashChat: {
     apiKey: string;
@@ -56,8 +55,7 @@ export const config: Config = {
     ssl: process.env.DB_SSL === "true",
   },
   redis: {
-    url: process.env.REDIS_URL || "redis://localhost:6379",
-    password: process.env.REDIS_PASSWORD || "",
+    uri: process.env.REDIS_URI || "redis://localhost:6379",
   },
   akashChat: {
     apiKey: process.env.AKASH_CHAT_API_KEY || "",
