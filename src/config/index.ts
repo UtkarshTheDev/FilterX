@@ -43,7 +43,6 @@ export interface Config {
     minResponseTTL: number;
     maxResponseTTL: number;
   };
-  adminToken: string;
 }
 
 // Parse and export config with defaults
@@ -105,5 +104,4 @@ export const config: Config = {
       10
     ), // Maximum TTL: 1 week
   },
-  adminToken: process.env.ADMIN_TOKEN || "admin-token-change-me",
 };

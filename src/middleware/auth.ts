@@ -1,7 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { validateApiKey } from "../services/apiKeyService";
 import { AppError } from "./errorHandler";
-import { config } from "../config";
 
 // Add custom properties to the Request type
 declare global {
@@ -63,48 +62,6 @@ export const apiKeyAuth = async (
       next(error);
     } else {
       next(new AppError("Authentication failed", 401));
-    }
-  }
-};
-
-/**
- * Verify admin token middleware
- * This middleware secures admin routes by checking for a valid admin token
- */
-export const verifyAdminToken = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      throw new AppError("Admin authentication required", 401);
-    }
-
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-
-    // Check admin token from config
-    // Admin token is stored in environment variables for security
-    const adminToken = process.env.ADMIN_TOKEN || config.adminToken;
-
-    if (!adminToken) {
-      console.error("Admin token not configured in environment variables");
-      throw new AppError("Admin authentication failed", 500);
-    }
-
-    if (token !== adminToken) {
-      throw new AppError("Invalid admin token", 401);
-    }
-
-    // If admin token is valid, proceed
-    next();
-  } catch (error) {
-    if (error instanceof AppError) {
-      next(error);
-    } else {
-      next(new AppError("Admin authentication failed", 401));
     }
   }
 };
