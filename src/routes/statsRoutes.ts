@@ -48,7 +48,7 @@ router.get(
   "/ai-monitor",
   asyncHandler(async (req: Request, res: Response) => {
     // Get the time range from query params (default to last 24 hours)
-    const timeRange = req.query.timeRange || "24h";
+    const timeRange = (req.query.timeRange as string) || "24h";
     const limit = parseInt(req.query.limit as string) || 100;
 
     // Get AI response time data from the stats service

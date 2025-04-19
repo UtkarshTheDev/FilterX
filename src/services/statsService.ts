@@ -624,14 +624,22 @@ const getTimeSeriesData = async (
       return [];
     }
 
+    // Define interface for time series data point
+    interface TimeSeriesDataPoint {
+      timestamp: number;
+      responseTime: number;
+      isError: boolean;
+      isCacheHit: boolean;
+    }
+
     // Parse and flatten results
-    const timeseriesData = [];
-    results.forEach((result, index) => {
+    const timeseriesData: TimeSeriesDataPoint[] = [];
+    results.forEach((result: [Error | null, unknown], index: number) => {
       const minuteData = result[1] as string[];
       if (minuteData && minuteData.length > 0) {
         minuteData.forEach((dataPoint) => {
           try {
-            const data = JSON.parse(dataPoint);
+            const data = JSON.parse(dataPoint) as TimeSeriesDataPoint;
             // Only include data points within the time range
             if (data.timestamp >= startTime && data.timestamp <= endTime) {
               timeseriesData.push(data);

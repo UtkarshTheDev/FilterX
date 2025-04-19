@@ -1,137 +1,191 @@
-# FilterX - Content Moderation API
+# FilterX
 
-FilterX is a powerful content moderation API designed to filter potentially harmful or sensitive content from text and images. It combines regex pattern matching, AI-based content analysis, and a caching mechanism to deliver fast and accurate content moderation.
+> Modern content filtering API with performance at its core
 
-## Features
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Bun](https://img.shields.io/badge/runtime-Bun-brightgreen.svg)
 
-- **Text Moderation**: Filter sensitive content including abusive language, personal information, etc.
-- **Image Analysis**: Detect NSFW or inappropriate content in images
-- **Context-Aware Filtering**: Analyze up to 15 previous messages for context
-- **Customizable Configuration**: Configure which types of content to filter
-- **Filtered Message Generation**: Option to return filtered versions of messages
-- **IP-Based API Keys**: Simple API key management based on IP address
-- **Rate Limiting**: Protect your API from abuse
-- **Public Stats**: View usage statistics to showcase platform reach
+## Overview
 
-## Technology Stack
+FilterX is a high-performance content moderation API designed to detect and filter inappropriate content from text and images. Built with TypeScript and Bun runtime, it offers fast and reliable content moderation with multi-layered caching strategies.
 
-- **Backend**: Node.js/Express.js with Bun runtime
-- **Database**: PostgreSQL via Neon
-- **Cache & Stats**: Redis via Upstash
-- **AI Integration**: Akash Chat API for text, MoonDream 2B for images
+## Key Features
 
-## Getting Started
+- **Content Filtering** - Advanced detection of harmful or inappropriate content
+- **Multi-Modal Support** - Process both text and image content
+- **Context-Aware Analysis** - Consider conversation history for better moderation decisions
+- **High Performance** - Multi-layered caching system with Redis integration
+- **API Key Management** - Secure and simple API authentication
+- **Fallback Mechanisms** - Graceful degradation when Redis is unavailable
+
+## Quick Start
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) (>= 1.0.0)
-- Neon PostgreSQL database
-- Upstash Redis instance
+- [Bun](https://bun.sh/) v1.0.0+
+- PostgreSQL database
+- Redis (optional, but recommended)
 
 ### Installation
 
-1. Clone the repository:
+```bash
+# Clone the repository
+git clone https://github.com/UtkarshTheDev/FilterX.git
 
-   ```bash
-   git clone https://github.com/yourusername/filterx.git
-   cd filterx
-   ```
+# Navigate to project directory
+cd FilterX
 
-2. Install dependencies:
+# Install dependencies
+bun install
 
-   ```bash
-   bun install
-   ```
+# Configure environment
+cp .env.example .env
+# Edit .env with your database and Redis credentials
 
-3. Set up environment variables:
+# Start development server
+bun run dev
 
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration details
-   ```
+# For production
+bun start
+```
 
-4. Run database migrations:
+## Usage Guide
 
-   ```bash
-   bun run migrate
-   ```
+### Authentication
 
-5. Prepare the database with initial data:
+Generate an API key for your application:
 
-   ```bash
-   bun run prepare-db
-   ```
+```bash
+curl http://localhost:8000/v1/apikey
+```
 
-6. Start the development server:
-   ```bash
-   bun run dev
-   ```
+The response contains your API key:
 
-### Available Scripts
-
-- `bun run start` - Start the server
-- `bun run dev` - Start the server with watch mode for development
-- `bun run build` - Build the project for production
-- `bun run prod` - Run the production build
-- `bun run migrate` - Run database migrations
-- `bun run test` - Run tests
-- `bun run lint` - Run ESLint
-- `bun run format` - Format code using Prettier
-- `bun run analyze` - Analyze bundle size
-- `bun run clean` - Clean build directory
-- `bun run docker:build` - Build Docker image
-- `bun run prepare-db` - Prepare the database with initial data
-
-## API Endpoints
-
-### POST /v1/filter
-
-Filter content for moderation.
-
-```http
-POST /v1/filter
-Authorization: Bearer your-api-key
-Content-Type: application/json
-
+```json
 {
-  "text": "Your text content",
-  "image": "base64-encoded-image", // Optional
-  "config": {
-    "allowAbuse": false,
-    "allowPhone": false,
-    "allowEmail": false,
-    "allowPhysicalInformation": false,
-    "allowSocialInformation": false,
-    "returnFilteredMessage": false
-  },
-  "oldMessages": [] // Optional, max 15 previous messages
+  "key": "your-api-key",
+  "userId": "user-id",
+  "createdAt": "2023-08-01T12:00:00.000Z"
 }
 ```
 
-### GET /v1/apikey
+### Basic Content Filtering
 
-Generate or retrieve API key for the client IP.
+Filter text content:
 
-```http
-GET /v1/apikey
+```bash
+curl -X POST http://localhost:8000/v1/filter \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Your content to moderate"
+  }'
 ```
 
-### GET /admin/stats
+### Advanced Options
 
-Get public statistics about FilterX usage.
+#### Custom Filtering Rules
 
-```http
-GET /admin/stats
+```bash
+curl -X POST http://localhost:8000/v1/filter \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Content to moderate",
+    "config": {
+      "allowAbuse": false,
+      "allowPhone": true,
+      "allowEmail": false,
+      "allowPhysicalInformation": false,
+      "allowSocialInformation": false
+    }
+  }'
 ```
 
-## Environment Variables
+#### Image Moderation
 
-See `.env.example` for the list of available environment variables.
+```bash
+curl -X POST http://localhost:8000/v1/filter \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "imageBase64": "BASE64_ENCODED_IMAGE"
+  }'
+```
+
+#### Context-Aware Moderation
+
+```bash
+curl -X POST http://localhost:8000/v1/filter \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Yes, that would work",
+    "oldMessages": [
+      "Can I get some help with my homework?",
+      "I'm struggling with this math problem"
+    ]
+  }'
+```
+
+### Response Format
+
+```json
+{
+  "blocked": false,
+  "flags": ["potential_abuse"],
+  "text": "Your content to moderate",
+  "filteredText": "Your ****** to moderate",
+  "processingTime": 45
+}
+```
+
+## How It Works
+
+FilterX employs a multi-tier approach to content moderation:
+
+1. **Cache Lookup** - Check if similar content has been processed before
+2. **Pre-screening** - Fast pattern matching for obvious violations
+3. **AI Processing** - Deep analysis for more subtle issues
+4. **Image Processing** - Specialized processing for visual content
+
+This tiered approach optimizes both speed and accuracy.
+
+## System Health
+
+Verify system status with the health endpoint:
+
+```bash
+curl http://localhost:8000/health
+```
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. Verify database connections in your `.env` file
+2. Ensure Redis is running (if configured)
+3. Check server logs for specific error messages
+4. Verify API key permissions
+
+## Development
+
+```bash
+# Run tests
+bun test
+
+# Lint code
+bun run lint
+
+# Format code
+bun run format
+```
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Contributing
+---
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Built with TypeScript and [Bun runtime](https://bun.sh)

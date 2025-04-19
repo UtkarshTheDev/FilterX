@@ -116,7 +116,7 @@ export const logger = {
    * Log startup header with app name and version
    */
   startupHeader: (): void => {
-    const version = process.env.npm_package_version || "1.0.0";
+    const version = process.env.bun_package_version || "1.0.0";
     const nodeEnv = config.nodeEnv;
     const port = config.port;
 
