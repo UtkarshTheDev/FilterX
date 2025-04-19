@@ -9,7 +9,7 @@ import {
 } from "../services/filterService";
 
 /**
- * Controller for handling content filtering operations - optimized for speed
+ * Controller for handling content filtering operations - optimized for maximum speed
  */
 export const filterController = {
   /**
@@ -21,15 +21,15 @@ export const filterController = {
       // Start timer for performance tracking
       const startTime = performance.now();
 
-      // Extract request data
+      // Extract request data with minimal processing
       const { text, image, config, oldMessages } = req.body;
 
-      // Create filter request with validated input
+      // Create filter request - validation happens in the service
       const filterRequest: FilterRequest = {
         text: text || "",
         image: image,
-        config: validateFilterConfig(config),
-        oldMessages: validateOldMessages(oldMessages),
+        config: config || {},
+        oldMessages: oldMessages || [],
       };
 
       // Process filter request
@@ -44,8 +44,10 @@ export const filterController = {
       // Add processing time to header for monitoring
       res.setHeader("X-Processing-Time", `${processingTime}ms`);
 
-      // Send response
+      // Send response immediately
       res.status(200).json(result);
+
+      // Any additional processing can happen in the background (already handled in filterContent)
     }
   ),
 
@@ -72,12 +74,12 @@ export const filterController = {
       // Process each item in parallel for maximum speed
       const results = await Promise.all(
         items.map(async (item) => {
-          // Create filter request with validated input
+          // Create filter request with minimal validation
           const filterRequest: FilterRequest = {
             text: item.text || "",
             image: item.image,
-            config: validateFilterConfig(item.config),
-            oldMessages: validateOldMessages(item.oldMessages),
+            config: item.config || {},
+            oldMessages: item.oldMessages || [],
           };
 
           // Process filter request
@@ -93,19 +95,21 @@ export const filterController = {
 
       // Send response
       res.status(200).json({ results });
+
+      // Additional processing is handled in the background in filterContent
     }
   ),
 
   /**
    * Process text-only content moderation request
-   * Optimized for text-only filtering
+   * Optimized for text-only filtering for maximum speed
    */
   filterTextRequest: asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
       // Start timer for performance tracking
       const startTime = performance.now();
 
-      // Extract request data
+      // Extract request data with minimal validation
       const { text, config, oldMessages } = req.body;
 
       if (!text) {
@@ -115,8 +119,8 @@ export const filterController = {
       // Create filter request
       const filterRequest: FilterRequest = {
         text,
-        config: validateFilterConfig(config),
-        oldMessages: validateOldMessages(oldMessages),
+        config: config || {},
+        oldMessages: oldMessages || [],
       };
 
       // Process filter request
@@ -133,6 +137,8 @@ export const filterController = {
 
       // Send response
       res.status(200).json(result);
+
+      // Additional processing is handled in the background in filterContent
     }
   ),
 
@@ -156,7 +162,7 @@ export const filterController = {
       const filterRequest: FilterRequest = {
         text: "", // Empty text for image-only requests
         image,
-        config: validateFilterConfig(config),
+        config: config || {},
       };
 
       // Process filter request
@@ -173,6 +179,8 @@ export const filterController = {
 
       // Send response
       res.status(200).json(result);
+
+      // Additional processing is handled in the background in filterContent
     }
   ),
 };

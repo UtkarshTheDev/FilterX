@@ -8,7 +8,7 @@ import logger from "./utils/logger";
 
 // Route imports
 import filterRoutes from "./routes/filter";
-import adminRoutes from "./routes/admin";
+import statsRoutes from "./routes/statsRoutes";
 import apiKeyRoutes from "./routes/apiKey";
 
 // Middleware imports
@@ -75,7 +75,7 @@ app.use(globalLimiter);
 
 // API routes
 app.use("/v1/filter", filterRoutes);
-app.use("/admin/stats", adminRoutes);
+app.use("/stats", statsRoutes);
 app.use("/v1/apikey", apiKeyRoutes);
 
 // Health check route

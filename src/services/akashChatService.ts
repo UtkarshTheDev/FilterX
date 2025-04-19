@@ -1,5 +1,12 @@
 import axios from "axios";
 import { config } from "../config";
+import {
+  generateAICacheKey,
+  getCachedResponse,
+  setCachedResponse,
+} from "../utils/cache";
+import { statsIncrement } from "../utils/redis";
+import { trackApiResponseTime } from "../utils/apiResponseTime";
 
 // Create axios client with optimized settings
 const client = axios.create({
@@ -180,6 +187,19 @@ export const analyzeTextContent = async (
     console.log(
       `[AI Analysis] Pre-screening determined AI review not needed, returning safe result`
     );
+
+    // Handle post-response stats in background
+    setImmediate(async () => {
+      try {
+        await statsIncrement("ai:prescreening:skipped");
+      } catch (error) {
+        console.error(
+          "[AI Analysis] Error tracking prescreening stats:",
+          error
+        );
+      }
+    });
+
     return {
       isViolation: false,
       flags: [],
@@ -193,6 +213,40 @@ export const analyzeTextContent = async (
       `[AI Analysis] Starting analysis for text: "${text.substring(0, 30)}..."`
     );
     console.log(`[AI Analysis] Filter config:`, JSON.stringify(filterConfig));
+
+    // Check if we have a cached result for this text and config
+    const cacheKey = generateAICacheKey(text, oldMessages, filterConfig);
+    console.log(
+      `[AI Analysis] Generated AI cache key: ${cacheKey.substring(0, 15)}...`
+    );
+
+    // Try to get from cache first
+    const cachedResult = await getCachedResponse(cacheKey);
+    if (cachedResult) {
+      console.log(`[AI Analysis] Cache hit! Using cached AI analysis result`);
+
+      // Track AI cache hits for monitoring - in background
+      setImmediate(async () => {
+        try {
+          await statsIncrement("ai:cache:hits");
+        } catch (error) {
+          console.error("[AI Analysis] Error tracking cache hit:", error);
+        }
+      });
+
+      return cachedResult;
+    }
+
+    console.log(`[AI Analysis] Cache miss, calling Akash Chat API`);
+
+    // Track AI cache misses for monitoring - in background
+    setImmediate(async () => {
+      try {
+        await statsIncrement("ai:cache:misses");
+      } catch (error) {
+        console.error("[AI Analysis] Error tracking cache miss:", error);
+      }
+    });
 
     // Format previous messages for context - optimize for speed
     const messageHistory = formatMessageHistory(oldMessages, text);
@@ -211,6 +265,9 @@ export const analyzeTextContent = async (
       ...messageHistory,
     ];
 
+    // Track API call starting time for performance monitoring
+    const apiCallStartTime = Date.now();
+
     // Make API request - optimized for speed
     console.log(
       `[AI Analysis] Sending request to Akash Chat API with ${messages.length} messages`
@@ -220,6 +277,23 @@ export const analyzeTextContent = async (
       messages: messages,
       temperature: 0.1, // Lower temperature for faster, more consistent responses
       max_tokens: 300, // Reduced token count for faster response
+    });
+
+    // Calculate API call duration for monitoring
+    const apiCallDuration = Date.now() - apiCallStartTime;
+    console.log(`[AI Analysis] API call completed in ${apiCallDuration}ms`);
+
+    // Track API call performance for monitoring - in background
+    setImmediate(async () => {
+      try {
+        await statsIncrement("ai:api:total_time", apiCallDuration);
+        await statsIncrement("ai:api:call_count");
+
+        // Track API response time for monitoring
+        await trackApiResponseTime("text", apiCallDuration, false, false);
+      } catch (error) {
+        console.error("[AI Analysis] Error tracking API performance:", error);
+      }
     });
 
     // Parse the response
@@ -249,9 +323,35 @@ export const analyzeTextContent = async (
       );
     }
 
+    // Cache the result for future use - using adaptive TTL
+    // Only cache successful results with proper parsing - in background
+    setImmediate(async () => {
+      try {
+        if (result.flags.indexOf("error") === -1) {
+          await setCachedResponse(cacheKey, result);
+          console.log(`[AI Analysis] Cached AI analysis result for future use`);
+        }
+      } catch (error) {
+        console.error("[AI Analysis] Error caching result:", error);
+      }
+    });
+
     return result;
   } catch (error) {
     console.error("Error calling Akash Chat API:", error);
+
+    // Track API errors for monitoring - in background
+    setImmediate(async () => {
+      try {
+        await statsIncrement("ai:api:errors");
+
+        // Track error response time for monitoring
+        const errorDuration = 0; // We don't know the exact error duration
+        await trackApiResponseTime("text", errorDuration, true, false);
+      } catch (error) {
+        console.error("[AI Analysis] Error tracking API error:", error);
+      }
+    });
 
     // Return a safer response on error (don't block by default)
     return {
@@ -263,7 +363,7 @@ export const analyzeTextContent = async (
 };
 
 /**
- * Format message history for the API - optimized for speed
+ * Format message history for the API - optimized for efficiency and context preservation
  * @param oldMessages Previous messages
  * @param currentMessage Current message
  * @returns Formatted message history
@@ -272,21 +372,92 @@ const formatMessageHistory = (
   oldMessages: Array<any> = [],
   currentMessage: string
 ): Array<{ role: string; content: string }> => {
-  // Process old messages (up to 15 max)
-  const limitedMessages = oldMessages.slice(-15);
+  // If there are no previous messages or only a few, use them all
+  if (oldMessages.length <= 5) {
+    return [
+      ...oldMessages.map((msg, index) => ({
+        role: index % 2 === 0 ? "Person1" : "Person2",
+        content: typeof msg === "string" ? msg : msg.text || "",
+      })),
+      // Add current message
+      {
+        role: "user",
+        content: currentMessage,
+      },
+    ];
+  }
 
-  // More efficient formatting
-  return [
-    ...limitedMessages.map((msg, index) => ({
+  // For longer conversation histories, use a smarter selective approach:
+  // 1. Always include the most recent messages (last 3)
+  // 2. Sample messages from the middle for context
+  // 3. Include a couple of early messages for initial context
+
+  // Get total message count
+  const totalMessages = oldMessages.length;
+
+  // Messages to select - prioritize recency and context
+  const selectedIndices = new Set<number>();
+
+  // Add last 3 messages (most recent context)
+  for (let i = 1; i <= 3; i++) {
+    if (totalMessages - i >= 0) {
+      selectedIndices.add(totalMessages - i);
+    }
+  }
+
+  // Add a couple of messages from the first third (beginning context)
+  const firstThird = Math.floor(totalMessages / 3);
+  if (firstThird > 0) {
+    selectedIndices.add(0); // First message
+    if (firstThird > 2) {
+      selectedIndices.add(Math.floor(firstThird / 2)); // Middle of first third
+    }
+  }
+
+  // Add a message from the middle for continuity
+  const middleIndex = Math.floor(totalMessages / 2);
+  if (middleIndex > 0 && !selectedIndices.has(middleIndex)) {
+    selectedIndices.add(middleIndex);
+  }
+
+  // Convert to array and sort for chronological order
+  const indicesToUse = Array.from(selectedIndices).sort((a, b) => a - b);
+
+  // Create history with selected messages
+  const formattedHistory = indicesToUse.map((index) => {
+    const msg = oldMessages[index];
+    return {
       role: index % 2 === 0 ? "Person1" : "Person2",
       content: typeof msg === "string" ? msg : msg.text || "",
-    })),
-    // Add current message
-    {
-      role: "user",
-      content: currentMessage,
-    },
-  ];
+    };
+  });
+
+  // Add current message at the end
+  formattedHistory.push({
+    role: "user",
+    content: currentMessage,
+  });
+
+  // Add marker to indicate this is a summarized conversation
+  if (indicesToUse.length < oldMessages.length) {
+    // Insert metadata about skipped messages at the beginning
+    formattedHistory.unshift({
+      role: "system",
+      content: `Note: This is a summarized conversation history of ${
+        oldMessages.length
+      } total messages. ${
+        formattedHistory.length - 1
+      } key messages were selected for context.`,
+    });
+  }
+
+  console.log(
+    `[AI Analysis] Optimized message history: Using ${
+      formattedHistory.length - 1
+    } messages out of ${oldMessages.length} total messages`
+  );
+
+  return formattedHistory;
 };
 
 /**

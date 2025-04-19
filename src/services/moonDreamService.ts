@@ -1,5 +1,13 @@
 import { config } from "../config";
 import { vl } from "moondream";
+import {
+  generateImageCacheKey,
+  generateImageHash,
+  getCachedResponse,
+  setCachedResponse,
+} from "../utils/cache";
+import { statsIncrement } from "../utils/redis";
+import { trackApiResponseTime } from "../utils/apiResponseTime";
 
 // Initialize the Moondream client
 const model = new vl({ apiKey: config.moonDream.apiKey });
@@ -22,8 +30,54 @@ export const analyzeImageContent = async (
     // Format the image for the API
     const imageData = formatImageForAPI(imageBase64);
 
+    // Generate image hash for caching
+    const imageHash = generateImageHash(imageData);
+    if (!imageHash) {
+      console.error("[Image Analysis] Failed to generate image hash");
+      throw new Error("Failed to generate image hash");
+    }
+
+    // Generate cache key for this image and config
+    const cacheKey = generateImageCacheKey(imageHash, filterConfig);
+    console.log(
+      `[Image Analysis] Generated cache key: ${cacheKey.substring(0, 15)}...`
+    );
+
+    // Try to get from cache first
+    const cachedResult = await getCachedResponse(cacheKey);
+    if (cachedResult) {
+      console.log(
+        `[Image Analysis] Cache hit! Using cached image analysis result`
+      );
+
+      // Track image cache hits for monitoring - in background
+      setImmediate(async () => {
+        try {
+          await statsIncrement("image:cache:hits");
+        } catch (error) {
+          console.error("[Image Analysis] Error tracking cache hits:", error);
+        }
+      });
+
+      return cachedResult;
+    }
+
+    console.log(`[Image Analysis] Cache miss, calling MoonDream API`);
+
+    // Track image cache misses for monitoring - in background
+    setImmediate(async () => {
+      try {
+        await statsIncrement("image:cache:misses");
+      } catch (error) {
+        console.error("[Image Analysis] Error tracking cache misses:", error);
+      }
+    });
+
     // Create question for content moderation based on config
     const question = createQuestionPrompt(filterConfig);
+
+    // Track API call starting time for performance monitoring
+    const apiCallStartTime = Date.now();
 
     // Make API request using the Moondream package
     const response = await model.query({
@@ -32,10 +86,62 @@ export const analyzeImageContent = async (
       stream: false,
     });
 
+    // Calculate API call duration for monitoring
+    const apiCallDuration = Date.now() - apiCallStartTime;
+    console.log(`[Image Analysis] API call completed in ${apiCallDuration}ms`);
+
+    // Track API call performance for monitoring - in background
+    setImmediate(async () => {
+      try {
+        await statsIncrement("image:api:total_time", apiCallDuration);
+        await statsIncrement("image:api:call_count");
+
+        // Track API response time for monitoring
+        await trackApiResponseTime("image", apiCallDuration, false, false);
+      } catch (error) {
+        console.error("[Image Analysis] Error tracking performance:", error);
+      }
+    });
+
     // Parse the response to extract content moderation result
-    return parseImageResponse(response.answer);
+    const result = parseImageResponse(response.answer);
+    console.log(
+      `[Image Analysis] Parsed result - isViolation: ${
+        result.isViolation
+      }, flags: [${result.flags.join(", ")}]`
+    );
+
+    // Cache the result for future use - in background
+    setImmediate(async () => {
+      try {
+        // Only cache successful results with proper parsing
+        if (result.flags.indexOf("error") === -1) {
+          await setCachedResponse(cacheKey, result);
+          console.log(
+            `[Image Analysis] Cached image analysis result for future use`
+          );
+        }
+      } catch (error) {
+        console.error("[Image Analysis] Error caching result:", error);
+      }
+    });
+
+    return result;
   } catch (error) {
     console.error("Error calling MoonDream API:", error);
+
+    // Track API errors for monitoring - in background
+    setImmediate(async () => {
+      try {
+        await statsIncrement("image:api:errors");
+
+        // Track error response time
+        const errorDuration = 0; // We don't know the exact duration
+        await trackApiResponseTime("image", errorDuration, true, false);
+      } catch (error) {
+        console.error("[Image Analysis] Error tracking API error:", error);
+      }
+    });
 
     // Return a conservative response on error
     return {

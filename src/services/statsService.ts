@@ -21,6 +21,10 @@ const KEY_PREFIXES = {
   AI_PROCESSING: "stats:ai:",
   IMAGE_PROCESSING: "stats:image:",
   PERFORMANCE: "stats:performance:",
+  CACHE_DETAILED: "stats:cache:detailed:",
+  AI_API_USAGE: "stats:api:usage:",
+  AI_RESPONSE_TIMES: "stats:ai:timeseries:",
+  IMAGE_RESPONSE_TIMES: "stats:image:timeseries:",
 };
 
 /**
@@ -120,6 +124,20 @@ export const getSummaryStats = async () => {
     "filter:performance:under500ms",
     "filter:performance:under1000ms",
     "filter:performance:over1000ms",
+    // Add API cache performance metrics
+    "ai:cache:hits",
+    "ai:cache:misses",
+    "ai:api:call_count",
+    "ai:api:errors",
+    "ai:api:total_time",
+    "image:cache:hits",
+    "image:cache:misses",
+    "image:api:call_count",
+    "image:api:errors",
+    "image:api:total_time",
+    // Cache TTL tracking
+    "cache:ttl:sum",
+    "cache:ttl:count",
   ];
 
   try {
@@ -174,6 +192,30 @@ export const getSummaryStats = async () => {
     const requestsHandledByAI =
       totalPerf > 0 ? Math.round((aiCalled / totalPerf) * 100) : 0;
 
+    // Extract new API cache metrics
+    const aiCacheHits = parseInt(values[23] || "0", 10);
+    const aiCacheMisses = parseInt(values[24] || "0", 10);
+    const aiApiCalls = parseInt(values[25] || "0", 10);
+    const aiApiErrors = parseInt(values[26] || "0", 10);
+    const aiApiTotalTime = parseInt(values[27] || "0", 10);
+
+    const imageCacheHits = parseInt(values[28] || "0", 10);
+    const imageCacheMisses = parseInt(values[29] || "0", 10);
+    const imageApiCalls = parseInt(values[30] || "0", 10);
+    const imageApiErrors = parseInt(values[31] || "0", 10);
+    const imageApiTotalTime = parseInt(values[32] || "0", 10);
+
+    // Calculate cache TTL average
+    const cacheTtlSum = parseInt(values[33] || "0", 10);
+    const cacheTtlCount = parseInt(values[34] || "1", 10); // Prevent division by zero
+    const avgCacheTtl = Math.round(cacheTtlSum / cacheTtlCount);
+
+    // Calculate API latency averages
+    const aiApiAvgTime =
+      aiApiCalls > 0 ? Math.round(aiApiTotalTime / aiApiCalls) : 0;
+    const imageApiAvgTime =
+      imageApiCalls > 0 ? Math.round(imageApiTotalTime / imageApiCalls) : 0;
+
     return {
       totalRequests: parseInt(values[0] || "0", 10),
       filteredRequests: parseInt(values[1] || "0", 10),
@@ -189,6 +231,7 @@ export const getSummaryStats = async () => {
           hits: filterCacheHits,
           misses: filterCacheMisses,
           hitRate: filterCacheRate,
+          avgTtlSeconds: avgCacheTtl,
         },
         prescreening: {
           handled: prescreenHandled,
@@ -202,12 +245,50 @@ export const getSummaryStats = async () => {
           errors: aiErrors,
           blockRate: aiBlockRate,
           usagePercent: requestsHandledByAI,
+          // Add AI API performance metrics
+          cache: {
+            hits: aiCacheHits,
+            misses: aiCacheMisses,
+            hitRate:
+              aiCacheHits + aiCacheMisses > 0
+                ? Math.round(
+                    (aiCacheHits / (aiCacheHits + aiCacheMisses)) * 100
+                  )
+                : 0,
+          },
+          api: {
+            calls: aiApiCalls,
+            errors: aiApiErrors,
+            avgResponseTime: aiApiAvgTime,
+            errorRate:
+              aiApiCalls > 0 ? Math.round((aiApiErrors / aiApiCalls) * 100) : 0,
+          },
         },
         image: {
           called: imageCalled,
           blocked: imageBlocked,
           allowed: imageAllowed,
           errors: imageErrors,
+          // Add image API performance metrics
+          cache: {
+            hits: imageCacheHits,
+            misses: imageCacheMisses,
+            hitRate:
+              imageCacheHits + imageCacheMisses > 0
+                ? Math.round(
+                    (imageCacheHits / (imageCacheHits + imageCacheMisses)) * 100
+                  )
+                : 0,
+          },
+          api: {
+            calls: imageApiCalls,
+            errors: imageApiErrors,
+            avgResponseTime: imageApiAvgTime,
+            errorRate:
+              imageApiCalls > 0
+                ? Math.round((imageApiErrors / imageApiCalls) * 100)
+                : 0,
+          },
         },
         performance: {
           under100ms,
@@ -316,4 +397,333 @@ const getFlagStats = async () => {
     console.error("Error getting flag stats:", error);
     return {};
   }
+};
+
+/**
+ * Track API call response time
+ * @param apiType Type of API ('text' or 'image')
+ * @param responseTimeMs Response time in milliseconds
+ * @param isError Whether the call resulted in an error
+ * @param isCacheHit Whether the result was from cache
+ */
+export const trackApiResponseTime = async (
+  apiType: "text" | "image",
+  responseTimeMs: number,
+  isError: boolean = false,
+  isCacheHit: boolean = false
+): Promise<void> => {
+  try {
+    const timestamp = Date.now();
+    const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    const hour = new Date().getHours();
+
+    // Create keys for time-series data (one entry per minute)
+    const minute = Math.floor(Date.now() / 60000); // Current minute timestamp
+    const timeseriesKey =
+      apiType === "text"
+        ? `${KEY_PREFIXES.AI_RESPONSE_TIMES}${date}:${hour}:${minute % 60}`
+        : `${KEY_PREFIXES.IMAGE_RESPONSE_TIMES}${date}:${hour}:${minute % 60}`;
+
+    // Store data in Redis
+    const pipeline = statsPipeline();
+
+    // Add data point to time-series
+    pipeline.rpush(
+      timeseriesKey,
+      JSON.stringify({
+        timestamp,
+        responseTime: responseTimeMs,
+        isError,
+        isCacheHit,
+      })
+    );
+
+    // Set TTL for time-series data (keep for 7 days)
+    pipeline.expire(timeseriesKey, 60 * 60 * 24 * 7);
+
+    // Track summary metrics as well
+    const metricPrefix = apiType === "text" ? "ai:api" : "image:api";
+
+    // Increment call counts
+    if (isError) {
+      pipeline.incr(`${metricPrefix}:errors`);
+    }
+    if (isCacheHit) {
+      pipeline.incr(`${metricPrefix}:cache_hits`);
+    } else {
+      pipeline.incr(`${metricPrefix}:calls`);
+      // Only track response time for actual API calls (not cache hits)
+      pipeline.incrby(`${metricPrefix}:total_time`, responseTimeMs);
+    }
+
+    // Execute pipeline
+    await pipeline.exec();
+  } catch (error) {
+    console.error(`Error tracking API response time:`, error);
+  }
+};
+
+/**
+ * Get detailed performance statistics for all APIs
+ */
+export const getDetailedPerformanceStats = async () => {
+  try {
+    // Get data for the last 24 hours
+    const endTime = Date.now();
+    const startTime = endTime - 24 * 60 * 60 * 1000; // 24 hours ago
+
+    // Get detailed performance data
+    const textApiData = await getApiPerformanceData("text", startTime, endTime);
+    const imageApiData = await getApiPerformanceData(
+      "image",
+      startTime,
+      endTime
+    );
+
+    return {
+      timeRange: "24h",
+      timestamp: new Date().toISOString(),
+      textApi: textApiData,
+      imageApi: imageApiData,
+      summary: {
+        avgResponseTime: {
+          text: textApiData.avgResponseTime,
+          image: imageApiData.avgResponseTime,
+          overall: Math.round(
+            (textApiData.totalCalls * textApiData.avgResponseTime +
+              imageApiData.totalCalls * imageApiData.avgResponseTime) /
+              Math.max(1, textApiData.totalCalls + imageApiData.totalCalls)
+          ),
+        },
+        errorRate: {
+          text: textApiData.errorRate,
+          image: imageApiData.errorRate,
+          overall: Math.round(
+            ((textApiData.errors + imageApiData.errors) /
+              Math.max(1, textApiData.totalCalls + imageApiData.totalCalls)) *
+              100
+          ),
+        },
+        cacheHitRate: {
+          text: textApiData.cacheHitRate,
+          image: imageApiData.cacheHitRate,
+          overall: Math.round(
+            ((textApiData.cacheHits + imageApiData.cacheHits) /
+              Math.max(
+                1,
+                textApiData.totalRequests + imageApiData.totalRequests
+              )) *
+              100
+          ),
+        },
+      },
+    };
+  } catch (error) {
+    console.error("Error getting detailed performance stats:", error);
+    return {
+      error: "Failed to retrieve performance statistics",
+      timestamp: new Date().toISOString(),
+    };
+  }
+};
+
+/**
+ * Get performance data for a specific API type
+ * @param apiType Type of API ('text' or 'image')
+ * @param startTime Start timestamp (ms)
+ * @param endTime End timestamp (ms)
+ */
+const getApiPerformanceData = async (
+  apiType: "text" | "image",
+  startTime: number,
+  endTime: number
+) => {
+  const metricPrefix = apiType === "text" ? "ai:api" : "image:api";
+  const cachePrefix = apiType === "text" ? "ai:cache" : "image:cache";
+
+  // Get counts from Redis
+  const [apiCalls, apiErrors, apiTotalTime, cacheHits, cacheMisses] =
+    await statsGetMulti([
+      `${metricPrefix}:calls`,
+      `${metricPrefix}:errors`,
+      `${metricPrefix}:total_time`,
+      `${cachePrefix}:hits`,
+      `${cachePrefix}:misses`,
+    ]);
+
+  // Parse values
+  const calls = parseInt(apiCalls || "0", 10);
+  const errors = parseInt(apiErrors || "0", 10);
+  const totalTime = parseInt(apiTotalTime || "0", 10);
+  const hits = parseInt(cacheHits || "0", 10);
+  const misses = parseInt(cacheMisses || "0", 10);
+
+  // Calculate metrics
+  const totalCalls = Math.max(1, calls); // Prevent division by zero
+  const totalRequests = hits + misses;
+  const avgResponseTime = Math.round(totalTime / totalCalls);
+  const errorRate = Math.round((errors / totalCalls) * 100);
+  const cacheHitRate =
+    totalRequests > 0 ? Math.round((hits / totalRequests) * 100) : 0;
+
+  // Get time-series data from Redis for response time distribution
+  const timeseriesData = await getTimeSeriesData(apiType, startTime, endTime);
+
+  return {
+    totalCalls,
+    errors,
+    avgResponseTime,
+    errorRate,
+    cacheHits: hits,
+    cacheMisses: misses,
+    totalRequests,
+    cacheHitRate,
+    timeseriesData,
+  };
+};
+
+/**
+ * Get time-series data for response times
+ * @param apiType Type of API ('text' or 'image')
+ * @param startTime Start timestamp (ms)
+ * @param endTime End timestamp (ms)
+ */
+const getTimeSeriesData = async (
+  apiType: "text" | "image",
+  startTime: number,
+  endTime: number
+) => {
+  try {
+    // Get date range
+    const startDate = new Date(startTime);
+    const endDate = new Date(endTime);
+
+    // For simplicity, we'll just get the last 60 minutes of data
+    // For a full implementation, you would iterate through all dates in the range
+    const currentDate = new Date().toISOString().split("T")[0];
+    const currentHour = new Date().getHours();
+
+    // Create prefix for keys
+    const keyPrefix =
+      apiType === "text"
+        ? KEY_PREFIXES.AI_RESPONSE_TIMES
+        : KEY_PREFIXES.IMAGE_RESPONSE_TIMES;
+
+    // Get keys for the current hour
+    const keys = [];
+    for (let minute = 0; minute < 60; minute++) {
+      keys.push(`${keyPrefix}${currentDate}:${currentHour}:${minute}`);
+    }
+
+    // Get time-series data for each minute
+    const pipeline = statsPipeline();
+    keys.forEach((key) => pipeline.lrange(key, 0, -1));
+
+    const results = await pipeline.exec();
+    if (!results) {
+      return [];
+    }
+
+    // Parse and flatten results
+    const timeseriesData = [];
+    results.forEach((result, index) => {
+      const minuteData = result[1] as string[];
+      if (minuteData && minuteData.length > 0) {
+        minuteData.forEach((dataPoint) => {
+          try {
+            const data = JSON.parse(dataPoint);
+            // Only include data points within the time range
+            if (data.timestamp >= startTime && data.timestamp <= endTime) {
+              timeseriesData.push(data);
+            }
+          } catch (e) {
+            // Skip invalid data points
+          }
+        });
+      }
+    });
+
+    // Sort by timestamp
+    return timeseriesData.sort((a, b) => a.timestamp - b.timestamp);
+  } catch (error) {
+    console.error(`Error getting time-series data:`, error);
+    return [];
+  }
+};
+
+/**
+ * Get AI response time data for monitoring
+ */
+export const getAIResponseTimeData = async (
+  timeRange: string = "24h",
+  limit: number = 100
+) => {
+  // Parse time range
+  const endTime = Date.now();
+  let startTime = endTime;
+
+  if (timeRange === "1h") {
+    startTime = endTime - 60 * 60 * 1000; // 1 hour ago
+  } else if (timeRange === "24h") {
+    startTime = endTime - 24 * 60 * 60 * 1000; // 24 hours ago
+  } else if (timeRange === "7d") {
+    startTime = endTime - 7 * 24 * 60 * 60 * 1000; // 7 days ago
+  } else if (timeRange === "30d") {
+    startTime = endTime - 30 * 24 * 60 * 60 * 1000; // 30 days ago
+  }
+
+  // Get API performance data
+  const textApiData = await getApiPerformanceData("text", startTime, endTime);
+  const imageApiData = await getApiPerformanceData("image", startTime, endTime);
+
+  // Get response times (only last 'limit' number of points)
+  const textResponseTimes = textApiData.timeseriesData
+    .slice(-limit)
+    .map((data) => ({
+      timestamp: data.timestamp,
+      responseTime: data.responseTime,
+      isError: data.isError,
+      isCacheHit: data.isCacheHit,
+    }));
+
+  const imageResponseTimes = imageApiData.timeseriesData
+    .slice(-limit)
+    .map((data) => ({
+      timestamp: data.timestamp,
+      responseTime: data.responseTime,
+      isError: data.isError,
+      isCacheHit: data.isCacheHit,
+    }));
+
+  // Calculate P95 response time
+  const calcP95 = (times: number[]) => {
+    if (times.length === 0) return 0;
+    const sorted = [...times].sort((a, b) => a - b);
+    const index = Math.floor(sorted.length * 0.95);
+    return sorted[index] || sorted[sorted.length - 1];
+  };
+
+  // Extract just response times for p95 calculation
+  const textResponseTimeValues = textResponseTimes.map((d) => d.responseTime);
+  const imageResponseTimeValues = imageResponseTimes.map((d) => d.responseTime);
+
+  return {
+    timeRange,
+    limit,
+    timestamp: new Date().toISOString(),
+    textApi: {
+      responseTimes: textResponseTimes,
+      avgResponseTime: textApiData.avgResponseTime,
+      p95ResponseTime: calcP95(textResponseTimeValues),
+      errorRate: textApiData.errorRate,
+      cacheHitRate: textApiData.cacheHitRate,
+    },
+    imageApi: {
+      responseTimes: imageResponseTimes,
+      avgResponseTime: imageApiData.avgResponseTime,
+      p95ResponseTime: calcP95(imageResponseTimeValues),
+      errorRate: imageApiData.errorRate,
+      cacheHitRate: imageApiData.cacheHitRate,
+    },
+  };
 };
