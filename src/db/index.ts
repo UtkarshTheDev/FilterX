@@ -6,18 +6,21 @@ import logger from "../utils/logger";
 // Singleton database pool instance
 let poolInstance: Pool | null = null;
 let dbInstance: any | null = null;
+let isWarmedUp = false;
 
 /**
- * Get a singleton database pool instance
+ * Get a singleton database pool instance with optimized connection settings
  */
 export const getPool = (): Pool => {
   if (poolInstance) {
     return poolInstance;
   }
 
-  logger.info("Initializing PostgreSQL connection pool");
+  logger.info(
+    "Initializing PostgreSQL connection pool with optimized settings"
+  );
 
-  // Create a PostgreSQL connection pool
+  // Create a PostgreSQL connection pool with optimized settings
   poolInstance = new Pool({
     host: config.db.host,
     port: config.db.port,
@@ -25,12 +28,19 @@ export const getPool = (): Pool => {
     password: config.db.password,
     database: config.db.database,
     ssl: config.db.ssl ? { rejectUnauthorized: false } : false,
-    max: 10, // Maximum number of clients in the pool (reduced from 20)
-    idleTimeoutMillis: 80000, // Close idle clients after 30 seconds
-    connectionTimeoutMillis: 5000, // Return an error after 5 seconds if connection could not be established
+
+    // Connection pool optimization
+    max: 10, // Maximum number of clients in the pool
+
+    // Timeout optimizations
+    idleTimeoutMillis: 300000, // Keep idle connections for 5 minutes (rather than closing them quickly)
+    connectionTimeoutMillis: 3000, // Return an error faster if a connection can't be established
+
+    // Connection handling
+    allowExitOnIdle: false, // Prevent the app from exiting when the pool is idle
   });
 
-  // Add event listeners for the pool
+  // Enhanced error handling and logging for the connection pool
   poolInstance.on("connect", () => {
     logger.debug("New database connection established");
   });
@@ -39,18 +49,53 @@ export const getPool = (): Pool => {
     logger.error("Unexpected database pool error", err);
   });
 
-  // Test database connection on startup - but only once
-  poolInstance
-    .connect()
-    .then((client) => {
-      logger.info("Database connection established successfully");
-      client.release();
-    })
-    .catch((err) => {
-      logger.error("Error connecting to database", err);
-    });
+  poolInstance.on("acquire", () => {
+    logger.debug("Client acquired from pool");
+  });
+
+  poolInstance.on("remove", () => {
+    logger.debug("Client removed from pool");
+  });
+
+  // Warm up the connection pool immediately to prevent cold starts
+  warmupConnectionPool();
 
   return poolInstance;
+};
+
+/**
+ * Warm up the connection pool by creating multiple connections in advance
+ * This prevents the delay for the first request
+ */
+export const warmupConnectionPool = async (): Promise<void> => {
+  if (isWarmedUp || !poolInstance) return;
+
+  logger.info("Warming up database connection pool");
+
+  try {
+    // Create and test multiple connections in parallel
+    const warmupPromises = [];
+    const minConnections = 2; // Create at least this many connections
+
+    for (let i = 0; i < minConnections; i++) {
+      warmupPromises.push(
+        (async () => {
+          const client = await poolInstance!.connect();
+          await client.query("SELECT 1 as warmup");
+          client.release();
+          logger.debug(`Connection ${i + 1} successfully warmed up`);
+        })()
+      );
+    }
+
+    await Promise.all(warmupPromises);
+    isWarmedUp = true;
+    logger.info(
+      `Database connection pool successfully warmed up with ${minConnections} connections`
+    );
+  } catch (error) {
+    logger.error("Error warming up connection pool", error);
+  }
 };
 
 /**
@@ -68,15 +113,35 @@ export const getDb = () => {
 const pool = getPool();
 const db = getDb();
 
-// Check database health
-export const isDatabaseHealthy = async (): Promise<boolean> => {
+// Periodically ping the database to keep connections alive
+setInterval(async () => {
   try {
     const client = await pool.connect();
+    await client.query("SELECT 1 as keep_alive");
+    client.release();
+    logger.debug("DB keep-alive ping successful");
+  } catch (error) {
+    logger.error("DB keep-alive ping failed", error);
+    // Attempt to re-warm the pool if the ping failed
+    isWarmedUp = false;
+    warmupConnectionPool();
+  }
+}, 60000); // Every minute
+
+// Check database health with improved error handling
+export const isDatabaseHealthy = async (): Promise<boolean> => {
+  try {
+    // Use a shorter timeout for health checks
+    const client = await pool.connect();
+    // Use standard query method instead of timeout option which isn't supported
     const result = await client.query("SELECT 1 as health_check");
     client.release();
     return result.rows.length > 0 && result.rows[0].health_check === 1;
   } catch (error) {
     logger.error("Database health check failed", error);
+    // Attempt to re-warm the pool after a health check failure
+    isWarmedUp = false;
+    warmupConnectionPool();
     return false;
   }
 };

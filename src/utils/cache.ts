@@ -20,29 +20,53 @@ export const generateCacheKey = (
 ): string => {
   // Create a more compact cache key to reduce processing time
   // Only include essential configuration options that affect the result
-  const essentialConfig = {
-    allowAbuse: filterConfig.allowAbuse,
-    allowPhone: filterConfig.allowPhone,
-    allowEmail: filterConfig.allowEmail,
-    allowPhysicalInformation: filterConfig.allowPhysicalInformation,
-    allowSocialInformation: filterConfig.allowSocialInformation,
-  };
+  // Use direct property access instead of creating a new object
 
-  // For the oldMessages, only use the last 5 messages max to improve cache hits
-  // and limit the key size (less messages means faster hash generation)
-  const limitedMessages = Array.isArray(oldMessages)
-    ? oldMessages
-        .slice(-5)
-        .map((msg) => (typeof msg === "string" ? msg : msg.text || ""))
-    : [];
+  // Generate a simple string representation of the config - faster than JSON.stringify
+  let configString = "";
+  if (filterConfig.allowAbuse) configString += "a";
+  if (filterConfig.allowPhone) configString += "p";
+  if (filterConfig.allowEmail) configString += "e";
+  if (filterConfig.allowPhysicalInformation) configString += "ph";
+  if (filterConfig.allowSocialInformation) configString += "s";
 
-  // Create string to hash - simplified version
-  const hashInput = JSON.stringify({
-    t: text,
-    c: essentialConfig,
-    m: limitedMessages.length > 0 ? limitedMessages : undefined,
-    i: imageHash || undefined,
-  });
+  // For the oldMessages, only include the last 3 messages max to improve cache hits
+  // and limit the key size (fewer messages means faster hash generation)
+  let messagesString = "";
+  if (Array.isArray(oldMessages) && oldMessages.length > 0) {
+    // Take at most 3 most recent messages
+    const recentMessages = oldMessages.slice(-3);
+    for (const msg of recentMessages) {
+      const msgText = typeof msg === "string" ? msg : msg.text || "";
+      // Just take the first 20 chars of each message - enough for context but faster
+      messagesString += msgText.substring(0, 20);
+    }
+  }
+
+  // Take a sample of the text for faster hashing while maintaining uniqueness
+  // For longer texts, sample from the beginning, middle, and end
+  let textSample = "";
+  if (text) {
+    const textLength = text.length;
+    if (textLength <= 100) {
+      // For short texts, use the whole thing
+      textSample = text;
+    } else {
+      // For longer texts, take samples from beginning, middle, and end
+      textSample =
+        text.substring(0, 40) +
+        text.substring(
+          Math.floor(textLength / 2) - 20,
+          Math.floor(textLength / 2) + 20
+        ) +
+        text.substring(textLength - 40);
+    }
+  }
+
+  // Combine the parts with delimiters for uniqueness
+  const hashInput = `${textSample}|${configString}|${messagesString}|${
+    imageHash || ""
+  }`;
 
   // Create faster hash (MD5 is much faster than SHA-256 for caching purposes)
   return crypto.createHash("md5").update(hashInput).digest("hex");
@@ -57,12 +81,33 @@ export const generateImageHash = (imageBase64: string): string | null => {
   if (!imageBase64) return null;
 
   try {
-    // Take only first 10000 chars of image data for faster hashing
-    // (sufficient for detecting same/similar images)
-    const sampleData = imageBase64.substring(0, 10000);
+    // Take only a small sample of image data from different parts
+    // This makes hash generation MUCH faster while still unique enough
+    // Take first 1000 chars (header), a middle slice, and end slice
+    const imgLength = imageBase64.length;
+
+    // For small images, use the whole thing
+    if (imgLength < 3000) {
+      return crypto.createHash("md5").update(imageBase64).digest("hex");
+    }
+
+    // For larger images, take strategic samples
+    const startSample = imageBase64.substring(0, 1000); // Header and beginning
+    const middleSample = imageBase64.substring(
+      Math.floor(imgLength / 2) - 500,
+      Math.floor(imgLength / 2) + 500
+    ); // Middle
+    const endSample = imageBase64.substring(imgLength - 1000); // End
+
+    // Combine samples for a representative hash
+    const sampleData = startSample + middleSample + endSample;
+
     return crypto.createHash("md5").update(sampleData).digest("hex");
   } catch (error) {
-    console.error("Error generating image hash:", error);
+    // Log error in background to not block response
+    setImmediate(() => {
+      console.error("Error generating image hash:", error);
+    });
     return null;
   }
 };
@@ -79,7 +124,7 @@ export const getCachedResponse = async (
     const cachedData = await cacheGet(cacheKey);
 
     if (cachedData) {
-      // Move cache hit stats to background processing
+      // Move ALL stats processing to background to not delay the response
       setImmediate(async () => {
         try {
           // Update cache hit rate statistics
@@ -105,7 +150,11 @@ export const getCachedResponse = async (
 
     return null;
   } catch (error) {
-    console.error("Error getting cached response:", error);
+    // Just log the error and return null - don't delay response
+    setImmediate(() => {
+      console.error("Error getting cached response:", error);
+    });
+
     return null;
   }
 };
@@ -121,18 +170,19 @@ export const setCachedResponse = async (
   response: any,
   ttl?: number
 ): Promise<void> => {
-  try {
-    // If no TTL provided, determine adaptive TTL based on response content
-    if (!ttl) {
-      ttl = calculateAdaptiveTTL(response);
-    }
+  // Run the entire caching operation in the background to not block the response
+  setImmediate(async () => {
+    try {
+      // If no TTL provided, determine adaptive TTL based on response content
+      if (!ttl) {
+        ttl = calculateAdaptiveTTL(response);
+      }
 
-    // Use a longer TTL for AI-based results to maximize cache usage
-    // This improves performance significantly for similar requests
-    await cacheSet(cacheKey, JSON.stringify(response), ttl);
+      // Use a longer TTL for AI-based results to maximize cache usage
+      // This improves performance significantly for similar requests
+      await cacheSet(cacheKey, JSON.stringify(response), ttl);
 
-    // Move TTL stats tracking to background processing
-    setImmediate(async () => {
+      // Track TTL stats in background
       try {
         // Track the TTL used for monitoring
         await statsIncrement("cache:ttl:sum", ttl);
@@ -140,10 +190,13 @@ export const setCachedResponse = async (
       } catch (error) {
         console.error("Error tracking cache TTL stats:", error);
       }
-    });
-  } catch (error) {
-    console.error("Error setting cached response:", error);
-  }
+    } catch (error) {
+      console.error("Error setting cached response:", error);
+    }
+  });
+
+  // Return immediately without waiting for cache operation to complete
+  return;
 };
 
 /**

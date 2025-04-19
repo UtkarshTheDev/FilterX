@@ -22,32 +22,32 @@ export const filterController = {
       const startTime = performance.now();
 
       // Extract request data with minimal processing
-      const { text, image, config, oldMessages } = req.body;
+      // Use destructuring with default values for faster access
+      const { text = "", image, config = {}, oldMessages = [] } = req.body;
 
-      // Create filter request - validation happens in the service
-      const filterRequest: FilterRequest = {
-        text: text || "",
-        image: image,
-        config: config || {},
-        oldMessages: oldMessages || [],
-      };
+      // Create filter request - minimal construction for speed
+      const filterRequest: FilterRequest = { text, image, config, oldMessages };
 
-      // Process filter request
+      // Process filter request - this is the critical part that must run
       const result = await filterContent(
         filterRequest,
         req.userId || "anonymous"
       );
 
-      // Calculate processing time
-      const processingTime = Math.round(performance.now() - startTime);
-
-      // Add processing time to header for monitoring
-      res.setHeader("X-Processing-Time", `${processingTime}ms`);
-
-      // Send response immediately
+      // Send response immediately before doing any additional processing
       res.status(200).json(result);
 
-      // Any additional processing can happen in the background (already handled in filterContent)
+      // Calculate processing time and log AFTER the response is sent
+      setImmediate(() => {
+        const processingTime = Math.round(performance.now() - startTime);
+
+        // Set processing time in header
+        // Note: This won't affect the response since it's already sent,
+        // but we keep it for logging purposes
+        res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
+        console.log(`[Controller] Request processed in ${processingTime}ms`);
+      });
     }
   ),
 
@@ -63,6 +63,7 @@ export const filterController = {
       // Get batch items from request
       const { items } = req.body;
 
+      // These validations are essential and must happen before processing
       if (!Array.isArray(items) || items.length === 0) {
         throw new AppError("Invalid batch request format", 400);
       }
@@ -74,7 +75,7 @@ export const filterController = {
       // Process each item in parallel for maximum speed
       const results = await Promise.all(
         items.map(async (item) => {
-          // Create filter request with minimal validation
+          // Create filter request with minimal validation and construction
           const filterRequest: FilterRequest = {
             text: item.text || "",
             image: item.image,
@@ -87,16 +88,21 @@ export const filterController = {
         })
       );
 
-      // Calculate processing time
-      const processingTime = Math.round(performance.now() - startTime);
-
-      // Add processing time to header for monitoring
-      res.setHeader("X-Processing-Time", `${processingTime}ms`);
-
-      // Send response
+      // Send response immediately
       res.status(200).json({ results });
 
-      // Additional processing is handled in the background in filterContent
+      // Calculate processing time AFTER the response is sent
+      setImmediate(() => {
+        const processingTime = Math.round(performance.now() - startTime);
+
+        // Set processing time in header
+        // Note: This won't affect the response since it's already sent
+        res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
+        console.log(
+          `[Controller] Batch request processed in ${processingTime}ms`
+        );
+      });
     }
   ),
 
@@ -109,36 +115,37 @@ export const filterController = {
       // Start timer for performance tracking
       const startTime = performance.now();
 
-      // Extract request data with minimal validation
-      const { text, config, oldMessages } = req.body;
+      // Extract request data with default values for speed
+      const { text, config = {}, oldMessages = [] } = req.body;
 
+      // Essential validation
       if (!text) {
         throw new AppError("Text content is required", 400);
       }
 
-      // Create filter request
-      const filterRequest: FilterRequest = {
-        text,
-        config: config || {},
-        oldMessages: oldMessages || [],
-      };
+      // Create filter request with minimal construction
+      const filterRequest: FilterRequest = { text, config, oldMessages };
 
-      // Process filter request
+      // Process filter request - critical operation
       const result = await filterContent(
         filterRequest,
         req.userId || "anonymous"
       );
 
-      // Calculate processing time
-      const processingTime = Math.round(performance.now() - startTime);
-
-      // Add processing time to header for monitoring
-      res.setHeader("X-Processing-Time", `${processingTime}ms`);
-
-      // Send response
+      // Send response immediately
       res.status(200).json(result);
 
-      // Additional processing is handled in the background in filterContent
+      // Process non-essential tasks after response is sent
+      setImmediate(() => {
+        const processingTime = Math.round(performance.now() - startTime);
+
+        // Set processing time in header (for logging only, response already sent)
+        res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
+        console.log(
+          `[Controller] Text request processed in ${processingTime}ms`
+        );
+      });
     }
   ),
 
@@ -151,36 +158,41 @@ export const filterController = {
       // Start timer for performance tracking
       const startTime = performance.now();
 
-      // Extract request data
-      const { image, config } = req.body;
+      // Extract request data with default values for speed
+      const { image, config = {} } = req.body;
 
+      // Essential validation
       if (!image) {
         throw new AppError("Image content is required", 400);
       }
 
-      // Create filter request
+      // Create filter request with minimal construction
       const filterRequest: FilterRequest = {
         text: "", // Empty text for image-only requests
         image,
-        config: config || {},
+        config,
       };
 
-      // Process filter request
+      // Process filter request - critical operation
       const result = await filterContent(
         filterRequest,
         req.userId || "anonymous"
       );
 
-      // Calculate processing time
-      const processingTime = Math.round(performance.now() - startTime);
-
-      // Add processing time to header for monitoring
-      res.setHeader("X-Processing-Time", `${processingTime}ms`);
-
-      // Send response
+      // Send response immediately
       res.status(200).json(result);
 
-      // Additional processing is handled in the background in filterContent
+      // Process non-essential tasks after response is sent
+      setImmediate(() => {
+        const processingTime = Math.round(performance.now() - startTime);
+
+        // Set processing time in header (for logging only, response already sent)
+        res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
+        console.log(
+          `[Controller] Image request processed in ${processingTime}ms`
+        );
+      });
     }
   ),
 };

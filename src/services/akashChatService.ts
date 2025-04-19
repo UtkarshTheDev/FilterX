@@ -21,7 +21,7 @@ const client = axios.create({
 });
 
 /**
- * Pre-screen content to determine if AI review is needed
+ * Pre-screen text to determine if AI analysis is needed
  * This method uses lightweight checks to avoid unnecessary AI API calls
  * @param text Text to pre-screen
  * @param filterConfig Configuration for content filtering
@@ -33,136 +33,248 @@ export const isAIReviewNeeded = (
 ): boolean => {
   // If text is empty, no review needed
   if (!text || text.trim().length === 0) {
-    console.log(`[AI Pre-screen] Empty text, skipping AI review`);
+    setImmediate(() =>
+      console.log(`[AI Pre-screen] Empty text, skipping AI review`)
+    );
     return false;
   }
 
   // If text is too short (less than 3 words), likely no sensitive content
   const wordCount = text.trim().split(/\s+/).length;
   if (wordCount < 3) {
-    console.log(
-      `[AI Pre-screen] Text too short (${wordCount} words), skipping AI review`
+    setImmediate(() =>
+      console.log(
+        `[AI Pre-screen] Text too short (${wordCount} words), skipping AI review`
+      )
     );
     return false;
   }
 
-  // Check for trigger patterns based on configuration
-  // These are very conservative checks that won't generate false negatives
-  // They'll only skip AI review when it's extremely unlikely to have violations
+  // Normalize text for more accurate screening
+  const normalizedText = text.toLowerCase();
+
+  // Check for benign phrases that can safely skip AI review
+  const benignPhrases = [
+    "do you know my no",
+    "know my number",
+    "know my no.",
+    "what is your name",
+    "how are you",
+    "hello",
+    "hi there",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "nice to meet you",
+  ];
+
+  if (normalizedText.length < 50) {
+    for (const phrase of benignPhrases) {
+      if (normalizedText.includes(phrase)) {
+        setImmediate(() =>
+          console.log(
+            `[AI Pre-screen] Detected common benign phrase, skipping AI review`
+          )
+        );
+        return false;
+      }
+    }
+  }
 
   let needsReview = false;
 
-  // First, check for the specific problematic pattern "do you know my no."
-  if (
-    text.toLowerCase().includes("do you know my no") ||
-    text.toLowerCase().includes("know my number") ||
-    text.toLowerCase().includes("know my no.")
-  ) {
-    // This is a reference to a number, not an actual number
-    console.log(
-      `[AI Pre-screen] Detected reference to 'my no.' without actual number, skipping AI review`
-    );
-    return false;
-  }
-
-  // Phone number check (only if phone numbers are not allowed)
+  // PHONE NUMBER DETECTION - simplified for speed
   if (!filterConfig.allowPhone) {
-    // Look for digit patterns that might indicate a phone number
-    // This is intentionally loose - AI will do the precise check
-    const containsDigitGroups = /\d{3,}/.test(text);
-    if (containsDigitGroups) {
-      console.log(
-        `[AI Pre-screen] Possible phone number pattern detected, AI review needed`
+    // Simplified phone regex for speed
+    const phoneRegex = /\d{3}[-.\s)]\d{3}[-.\s]\d{4}|\d{10,}/;
+
+    // Phone intent phrases
+    const phoneIntentPhrases = ["call me", "my number", "phone", "text me"];
+
+    const hasPhonePattern = phoneRegex.test(normalizedText);
+    let hasPhoneIntent = false;
+
+    if (!hasPhonePattern) {
+      // Only check intent phrases if regex didn't match
+      for (const phrase of phoneIntentPhrases) {
+        if (normalizedText.includes(phrase)) {
+          hasPhoneIntent = true;
+          break;
+        }
+      }
+    }
+
+    if (hasPhonePattern || hasPhoneIntent) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected phone pattern or intent, AI review needed`
+        )
       );
-      needsReview = true;
+      return true; // Return early
     }
   }
 
-  // Email check (only if emails are not allowed)
-  if (!filterConfig.allowEmail && !needsReview) {
-    // Look for simple @ pattern that might indicate an email
-    const containsEmailPattern = /@/.test(text);
-    if (containsEmailPattern) {
-      console.log(
-        `[AI Pre-screen] Possible email pattern detected, AI review needed`
+  // EMAIL DETECTION - simplified for speed
+  if (!filterConfig.allowEmail) {
+    // Simplified email check for speed
+    const emailRegex = /\S+@\S+\.\S+/;
+
+    // Email intent phrases
+    const emailIntentPhrases = ["my email", "email me", "contact me"];
+
+    const hasEmailPattern = emailRegex.test(normalizedText);
+    let hasEmailIntent = false;
+
+    if (!hasEmailPattern) {
+      // Only check intent phrases if regex didn't match
+      for (const phrase of emailIntentPhrases) {
+        if (normalizedText.includes(phrase)) {
+          hasEmailIntent = true;
+          break;
+        }
+      }
+    }
+
+    if (hasEmailPattern || hasEmailIntent) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected email pattern or intent, AI review needed`
+        )
       );
-      needsReview = true;
+      return true; // Return early
     }
   }
 
-  // Abuse language check (only if abuse is not allowed)
-  if (!filterConfig.allowAbuse && !needsReview) {
-    // Very simple check for common offensive terms
-    // This is intentionally minimal - AI will do detailed analysis
-    const commonOffensiveTerms = /\b(shit|fuck|bitch|ass|cunt|idiot|stupid)\b/i;
-    if (commonOffensiveTerms.test(text)) {
-      console.log(
-        `[AI Pre-screen] Possible offensive language detected, AI review needed`
+  // OFFENSIVE LANGUAGE DETECTION - simplified for speed
+  if (!filterConfig.allowAbuse) {
+    // Simplified offensive terms check
+    const offensiveRegex = /\b(shit|fuck|bitch|ass|idiot|stupid)\b/i;
+
+    // Offensive phrases
+    const offensiveIntentPhrases = ["hate you", "shut up", "kill yourself"];
+
+    const hasOffensivePattern = offensiveRegex.test(normalizedText);
+    let hasOffensiveIntent = false;
+
+    if (!hasOffensivePattern) {
+      // Only check intent phrases if regex didn't match
+      for (const phrase of offensiveIntentPhrases) {
+        if (normalizedText.includes(phrase)) {
+          hasOffensiveIntent = true;
+          break;
+        }
+      }
+    }
+
+    if (hasOffensivePattern || hasOffensiveIntent) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected offensive content, AI review needed`
+        )
       );
-      needsReview = true;
+      return true; // Return early
     }
   }
 
-  // Physical information check
-  if (!filterConfig.allowPhysicalInformation && !needsReview) {
-    // Check for address-like patterns or credit card-like patterns
-    const addressPattern =
-      /\b\d+\s+[A-Za-z\s]+(?:street|st|avenue|ave|road|rd|drive|dr)\b/i;
-    const creditCardPattern = /\b(?:\d[ -]*?){13,16}\b/;
+  // PHYSICAL INFORMATION DETECTION - simplified for speed
+  if (!filterConfig.allowPhysicalInformation) {
+    // Simplified address check
+    const addressRegex = /\d+\s+[A-Za-z\s]+(st|ave|rd|dr|ln|blvd)/i;
 
-    if (addressPattern.test(text) || creditCardPattern.test(text)) {
-      console.log(
-        `[AI Pre-screen] Possible physical information detected, AI review needed`
+    // Simplified credit card pattern
+    const creditCardRegex = /\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}/;
+
+    // Location phrases
+    const locationPhrases = ["i live at", "my address", "come to"];
+
+    const hasAddressPattern = addressRegex.test(text);
+    const hasCreditCardPattern = creditCardRegex.test(text);
+    let hasLocationIntent = false;
+
+    if (!hasAddressPattern && !hasCreditCardPattern) {
+      // Only check intent phrases if patterns didn't match
+      for (const phrase of locationPhrases) {
+        if (normalizedText.includes(phrase)) {
+          hasLocationIntent = true;
+          break;
+        }
+      }
+    }
+
+    if (hasAddressPattern || hasCreditCardPattern || hasLocationIntent) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected physical information, AI review needed`
+        )
       );
-      needsReview = true;
+      return true; // Return early
     }
   }
 
-  // Social information check
-  if (!filterConfig.allowSocialInformation && !needsReview) {
-    // Check for social media handle-like patterns
-    const socialMediaPattern =
-      /\b(?:@\w+|(?:instagram|twitter|facebook|linkedin)\.com)\b/i;
-    if (socialMediaPattern.test(text)) {
-      console.log(
-        `[AI Pre-screen] Possible social media information detected, AI review needed`
+  // SOCIAL INFORMATION DETECTION - simplified for speed
+  if (!filterConfig.allowSocialInformation) {
+    // Simplified social media check
+    const socialMediaRegex = /@\w+|(?:instagram|twitter|facebook)\.com/i;
+
+    // Social phrases
+    const socialPhrases = ["follow me", "my profile", "username"];
+
+    const hasSocialPattern = socialMediaRegex.test(text);
+    let hasSocialIntent = false;
+
+    if (!hasSocialPattern) {
+      // Only check intent phrases if pattern didn't match
+      for (const phrase of socialPhrases) {
+        if (normalizedText.includes(phrase)) {
+          hasSocialIntent = true;
+          break;
+        }
+      }
+    }
+
+    if (hasSocialPattern || hasSocialIntent) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected social media information, AI review needed`
+        )
       );
-      needsReview = true;
+      return true; // Return early
     }
   }
 
-  // Check key phrases that might indicate sharing of contact information
-  if (
-    (!filterConfig.allowPhone ||
-      !filterConfig.allowEmail ||
-      !filterConfig.allowSocialInformation) &&
-    !needsReview
-  ) {
-    // Make sure we DON'T match "do you know my no." pattern here
-    const contactPhrases =
-      /\b(?:contact me|reach me|call me at|my number is|text me at|my email is|my phone|my handle is|my username is)\b/i;
+  // CRITICAL TERMS CHECK - direct string matching for maximum speed
+  const criticalTerms = [
+    "account number",
+    "routing number",
+    "cvv",
+    "bank account",
+    "ssn",
+    "social security",
+    "passport",
+    "license number",
+    "password",
+    "hack",
+    "exploit",
+  ];
 
-    if (
-      contactPhrases.test(text) &&
-      !text.toLowerCase().includes("do you know my no") &&
-      !text.toLowerCase().includes("know my number") &&
-      !text.toLowerCase().includes("know my no.")
-    ) {
-      console.log(
-        `[AI Pre-screen] Contact-related phrases detected, AI review needed`
+  for (const term of criticalTerms) {
+    if (normalizedText.includes(term)) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected critical term: ${term}, AI review needed`
+        )
       );
-      needsReview = true;
+      return true; // Return early
     }
   }
 
-  // If none of the above triggered, we can skip AI review
-  if (!needsReview) {
+  // If we got here, no sensitive content was detected
+  setImmediate(() =>
     console.log(
       `[AI Pre-screen] No sensitive patterns detected, skipping AI review`
-    );
-  }
-
-  return needsReview;
+    )
+  );
+  return false;
 };
 
 /**

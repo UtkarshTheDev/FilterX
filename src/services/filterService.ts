@@ -50,11 +50,17 @@ export const filterContent = async (
   // Start timing
   const startTime = Date.now();
   console.log(`[Filter] Starting content filter for user: ${userId}`);
-  console.log(
-    `[Filter] Request text (preview): "${request.text?.substring(0, 30) || ""}${
-      request.text?.length > 30 ? "..." : ""
-    }"${request.image ? " with image" : ""}`
-  );
+
+  // Debug logging in background to not block response
+  setImmediate(() => {
+    console.log(
+      `[Filter] Request text (preview): "${
+        request.text?.substring(0, 30) || ""
+      }${request.text?.length > 30 ? "..." : ""}"${
+        request.image ? " with image" : ""
+      }`
+    );
+  });
 
   // Default response
   let response: FilterResponse = {
@@ -63,7 +69,7 @@ export const filterContent = async (
     flags: [],
   };
 
-  // Validate input
+  // Validate input - this is essential and must run before response
   if (!request.text && !request.image) {
     console.log(`[Filter] Invalid request: No content provided`);
     response.blocked = true;
@@ -76,17 +82,25 @@ export const filterContent = async (
     ...DEFAULT_CONFIG,
     ...(request.config || {}),
   };
-  console.log(`[Filter] Using configuration:`, JSON.stringify(config));
 
-  // Limit old messages to 15
+  // Log configuration in background
+  setImmediate(() => {
+    console.log(`[Filter] Using configuration:`, JSON.stringify(config));
+  });
+
+  // Limit old messages to 15 - must happen before processing
   const oldMessages = Array.isArray(request.oldMessages)
     ? request.oldMessages.slice(-15)
     : [];
-  console.log(
-    `[Filter] Processing with ${oldMessages.length} previous messages for context`
-  );
 
-  // Generate a cache key
+  // Log old messages in background
+  setImmediate(() => {
+    console.log(
+      `[Filter] Processing with ${oldMessages.length} previous messages for context`
+    );
+  });
+
+  // Generate a cache key - essential for cache checking
   const imageHash = request.image ? generateImageHash(request.image) : null;
   const cacheKey = generateCacheKey(
     request.text || "",
@@ -98,15 +112,19 @@ export const filterContent = async (
   let isCached = false;
 
   try {
-    // Check cache for previous result - optimized for speed
+    // Check cache for previous result - optimized for speed and essential
     const cachedResponse = await getCachedResponse(cacheKey);
 
     if (cachedResponse) {
       isCached = true;
       response = cachedResponse;
-      console.log(
-        `[Filter] Cache hit! Using cached response with ${response.flags.length} flags`
-      );
+
+      // Log cache hit in background
+      setImmediate(() => {
+        console.log(
+          `[Filter] Cache hit! Using cached response with ${response.flags.length} flags`
+        );
+      });
 
       // Track cache hits for monitoring - in background after response
       setImmediate(async () => {
@@ -128,7 +146,10 @@ export const filterContent = async (
       return response;
     }
 
-    console.log(`[Filter] Cache miss, proceeding with content analysis`);
+    // Log cache miss in background
+    setImmediate(() => {
+      console.log(`[Filter] Cache miss, proceeding with content analysis`);
+    });
 
     // Track cache misses for monitoring - in background
     setImmediate(async () => {
@@ -142,10 +163,15 @@ export const filterContent = async (
     // Process text content
     if (request.text) {
       // First check if AI review is actually needed using the pre-screening method
+      // This check is essential and must run before response
       if (!isAIReviewNeeded(request.text, config)) {
-        console.log(
-          `[Filter] Pre-screening determined no AI review needed - content is safe`
-        );
+        // Log pre-screening result in background
+        setImmediate(() => {
+          console.log(
+            `[Filter] Pre-screening determined no AI review needed - content is safe`
+          );
+        });
+
         // Since pre-screening found nothing concerning, we can skip AI analysis entirely
         response.blocked = false;
         response.flags = [];
@@ -166,10 +192,12 @@ export const filterContent = async (
           }
         });
       } else {
-        // Pre-screening indicated potential concerns - proceed with AI analysis
-        console.log(
-          `[Filter] Pre-screening indicated potential concerns, proceeding with AI analysis`
-        );
+        // Log pre-screening result in background
+        setImmediate(() => {
+          console.log(
+            `[Filter] Pre-screening indicated potential concerns, proceeding with AI analysis`
+          );
+        });
 
         // Track AI analysis for monitoring - in background
         setImmediate(async () => {
@@ -183,31 +211,42 @@ export const filterContent = async (
         const aiStartTime = Date.now();
 
         try {
+          // AI analysis is essential and must run before response
           const aiResult = await analyzeTextContent(request.text, oldMessages, {
             ...config,
             // Add flag for filtered content if requested
             generateFilteredContent: config.returnFilteredMessage,
           });
 
-          // Track AI processing time
-          const aiProcessingTime = Date.now() - aiStartTime;
-          console.log(
-            `[Filter] AI analysis completed in ${aiProcessingTime}ms`
-          );
+          // Track AI processing time in background
+          setImmediate(() => {
+            const aiProcessingTime = Date.now() - aiStartTime;
+            console.log(
+              `[Filter] AI analysis completed in ${aiProcessingTime}ms`
+            );
+          });
 
           if (aiResult.isViolation) {
-            console.log(
-              `[Filter] AI detected violation with flags: [${aiResult.flags.join(
-                ", "
-              )}]`
-            );
+            // Log violation in background
+            setImmediate(() => {
+              console.log(
+                `[Filter] AI detected violation with flags: [${aiResult.flags.join(
+                  ", "
+                )}]`
+              );
+            });
+
             response.blocked = true;
             response.flags = aiResult.flags;
             response.reason = aiResult.reason;
 
             // Use filtered message if available and requested
             if (config.returnFilteredMessage && aiResult.filteredContent) {
-              console.log(`[Filter] Using AI-generated filtered message`);
+              // Log filtered message generation in background
+              setImmediate(() => {
+                console.log(`[Filter] Using AI-generated filtered message`);
+              });
+
               response.filteredMessage = aiResult.filteredContent;
             }
 
@@ -223,7 +262,11 @@ export const filterContent = async (
               }
             });
           } else {
-            console.log(`[Filter] AI analysis found no violations`);
+            // Log no violations in background
+            setImmediate(() => {
+              console.log(`[Filter] AI analysis found no violations`);
+            });
+
             // Track AI result for monitoring - in background after response
             setImmediate(async () => {
               try {
@@ -237,9 +280,14 @@ export const filterContent = async (
             });
           }
         } catch (error) {
-          console.error("[Filter] Error in AI text analysis:", error);
+          // Log error in background
+          setImmediate(() => {
+            console.error("[Filter] Error in AI text analysis:", error);
+          });
+
           // Don't block content on AI error
           response.reason = "Content passed checks (AI service unavailable)";
+
           // Track AI errors for monitoring - in background after response
           setImmediate(async () => {
             try {
@@ -254,7 +302,10 @@ export const filterContent = async (
 
     // Process image if provided and text wasn't blocked
     if (request.image && !response.blocked) {
-      console.log(`[Filter] Processing image content`);
+      // Log image processing in background
+      setImmediate(() => {
+        console.log(`[Filter] Processing image content`);
+      });
 
       // Track image analysis for monitoring - in background
       setImmediate(async () => {
@@ -266,23 +317,35 @@ export const filterContent = async (
       });
 
       try {
-        // Optimize image first for faster processing
+        // Optimize image and analyze - essential operations
         const optimizedImage = await optimizeImage(request.image);
-        console.log(`[Filter] Image optimized successfully`);
 
-        // Analyze the optimized image
+        // Log image optimization in background
+        setImmediate(() => {
+          console.log(`[Filter] Image optimized successfully`);
+        });
+
+        // Analyze the optimized image - essential operation
         const imageResult = await analyzeImageContent(optimizedImage);
-        console.log(
-          `[Filter] Image analysis complete with result:`,
-          JSON.stringify({
-            isViolation: imageResult.isViolation,
-            flags: imageResult.flags,
-            reason: imageResult.reason,
-          })
-        );
+
+        // Log image analysis result in background
+        setImmediate(() => {
+          console.log(
+            `[Filter] Image analysis complete with result:`,
+            JSON.stringify({
+              isViolation: imageResult.isViolation,
+              flags: imageResult.flags,
+              reason: imageResult.reason,
+            })
+          );
+        });
 
         if (imageResult.isViolation) {
-          console.log(`[Filter] Image flagged as inappropriate`);
+          // Log image violation in background
+          setImmediate(() => {
+            console.log(`[Filter] Image flagged as inappropriate`);
+          });
+
           response.blocked = true;
           response.reason =
             imageResult.reason || "Image contains inappropriate content";
@@ -294,11 +357,15 @@ export const filterContent = async (
               response.flags.push(flagName);
             }
           });
-          console.log(
-            `[Filter] Added image flags: [${response.flags
-              .filter((f) => f.startsWith("image_"))
-              .join(", ")}]`
-          );
+
+          // Log image flags in background
+          setImmediate(() => {
+            console.log(
+              `[Filter] Added image flags: [${response.flags
+                .filter((f) => f.startsWith("image_"))
+                .join(", ")}]`
+            );
+          });
 
           // Track image result for monitoring - in background after response
           setImmediate(async () => {
@@ -325,7 +392,11 @@ export const filterContent = async (
           });
         }
       } catch (error) {
-        console.error("[Filter] Error in image analysis:", error);
+        // Log error in background
+        setImmediate(() => {
+          console.error("[Filter] Error in image analysis:", error);
+        });
+
         // Don't block content on image analysis error
         // Track image errors for monitoring - in background after response
         setImmediate(async () => {
@@ -338,7 +409,11 @@ export const filterContent = async (
       }
     }
   } catch (error) {
-    console.error("[Filter] Unexpected error in filter processing:", error);
+    // Log error in background
+    setImmediate(() => {
+      console.error("[Filter] Unexpected error in filter processing:", error);
+    });
+
     // Return a safe response on unexpected error
     response = {
       blocked: false,
@@ -347,17 +422,17 @@ export const filterContent = async (
     };
   }
 
-  // Calculate processing time
-  const processingTime = Date.now() - startTime;
-  console.log(
-    `[Filter] Content filtering complete in ${processingTime}ms - ${
-      response.blocked ? "BLOCKED" : "ALLOWED"
-    }`
-  );
-
-  // Run non-essential operations in the background after sending response
+  // Run ALL non-essential operations in the background after sending response
   setImmediate(async () => {
     try {
+      // Calculate processing time
+      const processingTime = Date.now() - startTime;
+      console.log(
+        `[Filter] Content filtering complete in ${processingTime}ms - ${
+          response.blocked ? "BLOCKED" : "ALLOWED"
+        }`
+      );
+
       // Cache the result if not already cached
       if (!isCached) {
         await setCachedResponse(cacheKey, response);
