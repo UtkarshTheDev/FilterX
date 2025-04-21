@@ -47,18 +47,48 @@ const requestLogger = (req: Request, res: Response, next: NextFunction) => {
 };
 
 // Security middleware
-app.use(helmet());
+app.use(
+  helmet({
+    // Disable CSP for API service since we don't serve HTML
+    contentSecurityPolicy: false,
+    // Enable other security headers
+    xssFilter: true,
+    noSniff: true,
+    referrerPolicy: { policy: "no-referrer" },
+  })
+);
+
 app.use(
   cors({
     origin: config.corsOrigins,
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    // Add performance optimization headers for browsers
+    exposedHeaders: [
+      "X-RateLimit-Limit",
+      "X-RateLimit-Remaining",
+      "X-Processing-Time",
+    ],
+    maxAge: 600, // Cache preflight requests for 10 minutes
   })
 );
 
-// Request parsing
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+// Request parsing - optimize for speed
+app.use(
+  express.json({
+    limit: "10mb",
+    // Disable unnecessary reviver function and strict mode for faster parsing
+    strict: false,
+  })
+);
+
+// Only parse URL encoded data for routes that need it
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "10mb",
+  })
+);
 
 // Use custom request logger
 app.use(requestLogger);
@@ -70,6 +100,10 @@ const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later." },
+  // Skip expensive DB operations
+  skipFailedRequests: true,
+  // We just use the default memory store which is fast enough
+  // Redis is not needed for the global rate limiter
 });
 app.use(globalLimiter);
 

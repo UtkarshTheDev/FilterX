@@ -76,11 +76,11 @@ Filter text content:
 
 ```bash
 curl -X POST http://localhost:8000/v1/filter \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "Your content to moderate"
-  }'
+-H "Authorization: Bearer YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{
+ "text": "Your content to moderate"
+}'
 ```
 
 ### Advanced Options
@@ -89,44 +89,44 @@ curl -X POST http://localhost:8000/v1/filter \
 
 ```bash
 curl -X POST http://localhost:8000/v1/filter \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "Content to moderate",
-    "config": {
-      "allowAbuse": false,
-      "allowPhone": true,
-      "allowEmail": false,
-      "allowPhysicalInformation": false,
-      "allowSocialInformation": false
-    }
-  }'
+-H "Authorization: Bearer YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{
+ "text": "Content to moderate",
+ "config": {
+   "allowAbuse": false,
+   "allowPhone": true,
+   "allowEmail": false,
+   "allowPhysicalInformation": false,
+   "allowSocialInformation": false
+ }
+}'
 ```
 
 #### Image Moderation
 
 ```bash
 curl -X POST http://localhost:8000/v1/filter \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "imageBase64": "BASE64_ENCODED_IMAGE"
-  }'
+-H "Authorization: Bearer YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{
+ "imageBase64": "BASE64_ENCODED_IMAGE"
+}'
 ```
 
 #### Context-Aware Moderation
 
 ```bash
 curl -X POST http://localhost:8000/v1/filter \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "Yes, that would work",
-    "oldMessages": [
-      "Can I get some help with my homework?",
-      "I'm struggling with this math problem"
-    ]
-  }'
+-H "Authorization: Bearer YOUR_API_KEY" \
+-H "Content-Type: application/json" \
+-d '{
+ "text": "Yes, that would work",
+ "oldMessages": [
+   "Can I get some help with my homework?",
+   "I'm struggling with this math problem"
+ ]
+}'
 ```
 
 ### Response Format

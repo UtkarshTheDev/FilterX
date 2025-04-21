@@ -1,12 +1,8 @@
 import type { Request, Response, NextFunction } from "express";
 import { asyncHandler } from "../middleware/errorHandler";
 import { AppError } from "../middleware/errorHandler";
-import {
-  filterContent,
-  validateFilterConfig,
-  validateOldMessages,
-  type FilterRequest,
-} from "../services/filterService";
+import { statsIncrement } from "../utils/redis";
+import { filterContent, type FilterRequest } from "../services/filterService";
 
 /**
  * Controller for handling content filtering operations - optimized for maximum speed
@@ -34,19 +30,51 @@ export const filterController = {
         req.userId || "anonymous"
       );
 
+      // Track overall processing time before sending response
+      const processingTime = Math.round(performance.now() - startTime);
+
+      // Add processing time to response headers before sending
+      res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
+      // Performance monitoring and early headers
+      res.setHeader("X-Response-Time", `${processingTime}ms`);
+
+      // Important: Add Cache-Control headers for CDN/browser caching when appropriate
+      // Only cache safe responses and only for a short time
+      if (!result.blocked) {
+        // Safe content can be cached briefly
+        res.setHeader("Cache-Control", "private, max-age=60");
+      } else {
+        // Blocked content should not be cached
+        res.setHeader("Cache-Control", "no-store, max-age=0");
+      }
+
       // Send response immediately before doing any additional processing
       res.status(200).json(result);
 
-      // Calculate processing time and log AFTER the response is sent
+      // Move ALL non-essential operations after response is sent
       setImmediate(() => {
-        const processingTime = Math.round(performance.now() - startTime);
-
-        // Set processing time in header
-        // Note: This won't affect the response since it's already sent,
-        // but we keep it for logging purposes
-        res.setHeader("X-Processing-Time", `${processingTime}ms`);
-
+        // Log performance metrics
         console.log(`[Controller] Request processed in ${processingTime}ms`);
+
+        // Track performance metrics
+        if (processingTime < 50) {
+          statsIncrement("filter:controller:under50ms").catch((err: Error) => {
+            console.error("Error tracking performance metrics:", err);
+          });
+        } else if (processingTime < 100) {
+          statsIncrement("filter:controller:under100ms").catch((err: Error) => {
+            console.error("Error tracking performance metrics:", err);
+          });
+        } else if (processingTime < 200) {
+          statsIncrement("filter:controller:under200ms").catch((err: Error) => {
+            console.error("Error tracking performance metrics:", err);
+          });
+        } else {
+          statsIncrement("filter:controller:over200ms").catch((err: Error) => {
+            console.error("Error tracking performance metrics:", err);
+          });
+        }
       });
     }
   ),

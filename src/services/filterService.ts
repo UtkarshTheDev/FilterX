@@ -1,4 +1,8 @@
-import { analyzeTextContent, isAIReviewNeeded } from "./akashChatService";
+import {
+  analyzeTextContent,
+  isAIReviewNeeded,
+  PATTERNS,
+} from "./akashChatService";
 import { analyzeImageContent, optimizeImage } from "./moonDreamService";
 import {
   generateCacheKey,
@@ -164,7 +168,9 @@ export const filterContent = async (
     if (request.text) {
       // First check if AI review is actually needed using the pre-screening method
       // This check is essential and must run before response
-      if (!isAIReviewNeeded(request.text, config)) {
+      const prescreeningResult = isAIReviewNeeded(request.text, config);
+
+      if (!prescreeningResult.needsReview) {
         // Log pre-screening result in background
         setImmediate(() => {
           console.log(
@@ -180,6 +186,9 @@ export const filterContent = async (
         // If filtered message was requested, just return the original text
         if (config.returnFilteredMessage) {
           response.filteredMessage = request.text;
+          console.log(
+            `[Filter] Adding original text as filtered message (no filtering needed)`
+          );
         }
 
         // Track pre-screening success for monitoring - in background after response
@@ -192,110 +201,219 @@ export const filterContent = async (
           }
         });
       } else {
-        // Log pre-screening result in background
-        setImmediate(() => {
-          console.log(
-            `[Filter] Pre-screening indicated potential concerns, proceeding with AI analysis`
-          );
-        });
+        // If pre-screening detected sensitive content but config allows it,
+        // we can avoid AI analysis and just return the flags from pre-screening
+        if (
+          (prescreeningResult.flags.includes("phone_number") &&
+            config.allowPhone) ||
+          (prescreeningResult.flags.includes("email_address") &&
+            config.allowEmail) ||
+          (prescreeningResult.flags.includes("abusive_language") &&
+            config.allowAbuse) ||
+          (prescreeningResult.flags.includes("physical_address") &&
+            config.allowPhysicalInformation) ||
+          (prescreeningResult.flags.includes("social_media_handle") &&
+            config.allowSocialInformation)
+        ) {
+          // Content contains sensitive info but it's allowed by config
+          response.blocked = false;
+          response.flags = prescreeningResult.flags;
+          response.reason = "Content contains allowed sensitive information";
 
-        // Track AI analysis for monitoring - in background
-        setImmediate(async () => {
-          try {
-            await statsIncrement("filter:ai:called");
-          } catch (error) {
-            console.error("[Filter] Error tracking AI call stats:", error);
+          // If filtered message was requested, just return the original text
+          if (config.returnFilteredMessage) {
+            response.filteredMessage = request.text;
           }
-        });
 
-        const aiStartTime = Date.now();
-
-        try {
-          // AI analysis is essential and must run before response
-          const aiResult = await analyzeTextContent(request.text, oldMessages, {
-            ...config,
-            // Add flag for filtered content if requested
-            generateFilteredContent: config.returnFilteredMessage,
-          });
-
-          // Track AI processing time in background
+          // Log and track the allowed content
           setImmediate(() => {
-            const aiProcessingTime = Date.now() - aiStartTime;
             console.log(
-              `[Filter] AI analysis completed in ${aiProcessingTime}ms`
+              `[Filter] Pre-screening found sensitive content (${prescreeningResult.flags.join(
+                ", "
+              )}) but it's allowed by config`
             );
           });
 
-          if (aiResult.isViolation) {
-            // Log violation in background
+          setImmediate(async () => {
+            try {
+              await statsIncrement("filter:prescreening:handled");
+              await statsIncrement("filter:prescreening:allowed");
+            } catch (error) {
+              console.error(
+                "[Filter] Error tracking prescreening stats:",
+                error
+              );
+            }
+          });
+        } else {
+          // If pre-screening detected disallowed content, we can block immediately
+          // without needing to call the AI service
+          if (
+            prescreeningResult.flags.length > 0 &&
+            prescreeningResult.reason
+          ) {
+            // Log detection in background
             setImmediate(() => {
               console.log(
-                `[Filter] AI detected violation with flags: [${aiResult.flags.join(
+                `[Filter] Pre-screening detected disallowed content: ${prescreeningResult.flags.join(
                   ", "
-                )}]`
+                )}, blocking immediately`
               );
             });
 
+            // Block the content based on pre-screening
             response.blocked = true;
-            response.flags = aiResult.flags;
-            response.reason = aiResult.reason;
+            response.flags = prescreeningResult.flags;
+            response.reason = prescreeningResult.reason;
 
-            // Use filtered message if available and requested
-            if (config.returnFilteredMessage && aiResult.filteredContent) {
-              // Log filtered message generation in background
-              setImmediate(() => {
-                console.log(`[Filter] Using AI-generated filtered message`);
-              });
-
-              response.filteredMessage = aiResult.filteredContent;
+            // If filtered message was requested, create a simple filtered version
+            if (config.returnFilteredMessage) {
+              // For phone numbers, replace with asterisks
+              if (prescreeningResult.flags.includes("phone_number")) {
+                // Find phone number pattern
+                const phoneMatch = request.text.match(PATTERNS.PHONE.STANDARD);
+                if (phoneMatch && phoneMatch[0]) {
+                  const asterisks = "*".repeat(phoneMatch[0].length);
+                  response.filteredMessage = request.text.replace(
+                    phoneMatch[0],
+                    asterisks
+                  );
+                } else {
+                  response.filteredMessage = request.text;
+                }
+              } else {
+                // For other types, just use original text
+                response.filteredMessage = request.text;
+              }
             }
 
-            // Track AI result for monitoring - in background after response
+            // Track pre-screening block for monitoring
             setImmediate(async () => {
               try {
-                await statsIncrement("filter:ai:blocked");
+                await statsIncrement("filter:prescreening:handled");
+                await statsIncrement("filter:prescreening:blocked");
               } catch (error) {
                 console.error(
-                  "[Filter] Error tracking AI blocked stats:",
+                  "[Filter] Error tracking prescreening stats:",
                   error
                 );
               }
             });
           } else {
-            // Log no violations in background
+            // Log pre-screening result in background
             setImmediate(() => {
-              console.log(`[Filter] AI analysis found no violations`);
+              console.log(
+                `[Filter] Pre-screening detected sensitive content (${prescreeningResult.flags.join(
+                  ", "
+                )}), proceeding with AI analysis`
+              );
             });
 
-            // Track AI result for monitoring - in background after response
+            // Track AI analysis for monitoring - in background
             setImmediate(async () => {
               try {
-                await statsIncrement("filter:ai:allowed");
+                await statsIncrement("filter:ai:called");
               } catch (error) {
-                console.error(
-                  "[Filter] Error tracking AI allowed stats:",
-                  error
-                );
+                console.error("[Filter] Error tracking AI call stats:", error);
               }
             });
-          }
-        } catch (error) {
-          // Log error in background
-          setImmediate(() => {
-            console.error("[Filter] Error in AI text analysis:", error);
-          });
 
-          // Don't block content on AI error
-          response.reason = "Content passed checks (AI service unavailable)";
+            const aiStartTime = Date.now();
 
-          // Track AI errors for monitoring - in background after response
-          setImmediate(async () => {
             try {
-              await statsIncrement("filter:ai:errors");
+              // AI analysis is essential and must run before response
+              const aiResult = await analyzeTextContent(
+                request.text,
+                oldMessages,
+                {
+                  ...config,
+                  // Only generate filtered content if it was requested
+                  generateFilteredContent:
+                    config.returnFilteredMessage || false,
+                }
+              );
+
+              // Track AI processing time in background
+              setImmediate(() => {
+                const aiProcessingTime = Date.now() - aiStartTime;
+                console.log(
+                  `[Filter] AI analysis completed in ${aiProcessingTime}ms`
+                );
+              });
+
+              if (aiResult.isViolation) {
+                // Log violation in background
+                setImmediate(() => {
+                  console.log(
+                    `[Filter] AI detected violation with flags: [${aiResult.flags.join(
+                      ", "
+                    )}]`
+                  );
+                });
+
+                response.blocked = true;
+                response.flags = aiResult.flags;
+                response.reason = aiResult.reason;
+
+                // Use filtered message if available and requested
+                if (config.returnFilteredMessage && aiResult.filteredContent) {
+                  // Log filtered message generation in background
+                  setImmediate(() => {
+                    console.log(`[Filter] Using AI-generated filtered message`);
+                  });
+
+                  response.filteredMessage = aiResult.filteredContent;
+                }
+
+                // Track AI result for monitoring - in background after response
+                setImmediate(async () => {
+                  try {
+                    await statsIncrement("filter:ai:blocked");
+                  } catch (error) {
+                    console.error(
+                      "[Filter] Error tracking AI blocked stats:",
+                      error
+                    );
+                  }
+                });
+              } else {
+                // Log no violations in background
+                setImmediate(() => {
+                  console.log(`[Filter] AI analysis found no violations`);
+                });
+
+                // Track AI result for monitoring - in background after response
+                setImmediate(async () => {
+                  try {
+                    await statsIncrement("filter:ai:allowed");
+                  } catch (error) {
+                    console.error(
+                      "[Filter] Error tracking AI allowed stats:",
+                      error
+                    );
+                  }
+                });
+              }
             } catch (error) {
-              console.error("[Filter] Error tracking AI errors:", error);
+              // Log error in background
+              setImmediate(() => {
+                console.error("[Filter] Error in AI text analysis:", error);
+              });
+
+              // Don't block content on AI error
+              response.reason =
+                "Content passed checks (AI service unavailable)";
+
+              // Track AI errors for monitoring - in background after response
+              setImmediate(async () => {
+                try {
+                  await statsIncrement("filter:ai:errors");
+                } catch (error) {
+                  console.error("[Filter] Error tracking AI errors:", error);
+                }
+              });
             }
-          });
+          }
         }
       }
     }

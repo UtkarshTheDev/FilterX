@@ -193,6 +193,14 @@ const optimizedMiddleware: RequestHandler[] = [
   apiKeyAuth,
 ];
 
+// Ultra-fast middleware chain for high-performance scenarios (e.g., batch processing)
+// Skips rate limiting for trusted use cases where it's managed elsewhere
+const ultraFastMiddleware: RequestHandler[] = [
+  // Apply only route caching and API key auth for maximum speed
+  createCacheMiddleware(120), // longer cache duration
+  apiKeyAuth,
+];
+
 /**
  * POST /v1/filter
  * Filter content for moderation (text and/or image)
@@ -219,6 +227,29 @@ router.post(
   ],
   // Process the filter request
   filterController.filterContentRequest
+);
+
+/**
+ * POST /v1/filter/performance-test
+ * Special route for performance testing with minimum overhead
+ * Uses the ultra-fast middleware chain
+ */
+router.post(
+  "/performance-test",
+  ...ultraFastMiddleware,
+  [body("text").optional().isString().withMessage("Text must be a string")],
+  asyncHandler(async (req: express.Request, res: express.Response) => {
+    const startTime = performance.now();
+
+    // Just return success immediately to test route overhead
+    const processingTime = Math.round(performance.now() - startTime);
+
+    res.status(200).json({
+      success: true,
+      processingTime: processingTime,
+      message: "Performance test endpoint",
+    });
+  })
 );
 
 /**

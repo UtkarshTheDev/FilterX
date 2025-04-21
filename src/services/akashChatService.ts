@@ -20,26 +20,252 @@ const client = axios.create({
   decompress: true, // Handle gzip/deflate responses to reduce payload size
 });
 
+// Pre-compiled regex patterns for maximum performance
+export const PATTERNS = {
+  // Phone patterns
+  PHONE: {
+    // International and domestic formats
+    STANDARD:
+      /\b(?:\+?(\d{1,3}))?[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}\b/,
+    // Spelled out numbers
+    SPELLED:
+      /\b(zero|one|two|three|four|five|six|seven|eight|nine)(\s+(zero|one|two|three|four|five|six|seven|eight|nine)){5,}\b/i,
+  },
+  // Email patterns
+  EMAIL: {
+    // Standard format
+    STANDARD: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/,
+    // Obfuscated format
+    OBFUSCATED: /\b\S+\s+(?:at|[@])\s+\S+\s+(?:dot|[.])\s+\S+\b/i,
+  },
+  // Physical information
+  PHYSICAL: {
+    // Address with various street suffixes
+    ADDRESS:
+      /\d+\s+[A-Za-z\s]+(?:st|street|ave|avenue|rd|road|dr|drive|ln|lane|blvd|boulevard|apt|apartment|unit|#)\b/i,
+    // Credit card patterns
+    CREDIT_CARD: {
+      // Standard 16-digit cards
+      STANDARD: /\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}/,
+      // American Express format
+      AMEX: /\d{4}[-\s]?\d{6}[-\s]?\d{5}/,
+    },
+  },
+  // Social media
+  SOCIAL: {
+    // Username handles
+    HANDLE: /@\w+/i,
+    // Domain patterns
+    DOMAINS:
+      /(?:instagram|twitter|x|facebook|tiktok|snapchat|linkedin|discord|youtube|pinterest|reddit|tumblr)\.com/i,
+  },
+  // Offensive language
+  OFFENSIVE: {
+    // Common offensive terms - expanded but still optimized for performance
+    TERMS:
+      /\b(shit|fuck|bitch|ass(?:hole)?|idiot|stupid|dick|bastard|cunt|damn|hell|piss|jerk|douche|moron)\b/i,
+  },
+  // Obfuscation detection
+  OBFUSCATION: {
+    // Excessive spacing between characters
+    SPACED: /\b\w(\s+\w){4,}\b/,
+  },
+};
+
+// Intent phrase collections - expanded for better detection
+const INTENT_PHRASES = {
+  // Phone sharing intent
+  PHONE: [
+    "call me",
+    "my number",
+    "phone",
+    "text me",
+    "reach me at",
+    "my cell",
+    "contact me on",
+    "dial",
+    "ring me",
+    "my mobile",
+    "my phone number is",
+    "you can reach me",
+    "get in touch",
+    "my contact",
+    "my line",
+  ],
+  // Email sharing intent
+  EMAIL: [
+    "my email",
+    "email me",
+    "contact me",
+    "send me mail",
+    "drop me a line",
+    "shoot me an email",
+    "write to me at",
+    "send me a message",
+    "my mail",
+    "reach me by email",
+  ],
+  // Physical location sharing intent
+  PHYSICAL: [
+    "i live at",
+    "my address",
+    "come to",
+    "visit me at",
+    "located at",
+    "my place is",
+    "my house is at",
+    "my location",
+    "my home",
+    "come over",
+    "i'm located",
+    "i stay at",
+    "deliver to",
+    "ship to",
+    "i reside at",
+  ],
+  // Social media sharing intent
+  SOCIAL: [
+    "follow me",
+    "my profile",
+    "username",
+    "add me on",
+    "find me on",
+    "my account",
+    "friend me",
+    "connect with me",
+    "dm me",
+    "message me on",
+    "my handle",
+    "check out my",
+    "my page",
+    "my channel",
+  ],
+  // Offensive intent
+  OFFENSIVE: [
+    "hate you",
+    "shut up",
+    "kill yourself",
+    "go away",
+    "screw you",
+    "get lost",
+    "f you",
+    "f off",
+    "drop dead",
+    "go to hell",
+    "you suck",
+    "loser",
+    "die",
+    "stupid bot",
+  ],
+};
+
+// Expanded critical terms for direct string matching (fastest detection)
+const CRITICAL_TERMS = [
+  // Financial information
+  "account number",
+  "routing number",
+  "cvv",
+  "bank account",
+  "credit card",
+  "debit card",
+  "pin",
+  "security code",
+  "wire transfer",
+  "bank details",
+  "card number",
+  "expiration date",
+
+  // Personal identification
+  "ssn",
+  "social security",
+  "passport",
+  "license number",
+  "id number",
+  "birth certificate",
+  "drivers license",
+  "identification",
+
+  // Security
+  "password",
+  "credentials",
+  "login",
+  "hack",
+  "exploit",
+  "secret question",
+  "security question",
+  "password reset",
+
+  // Additional high-risk terms
+  "private key",
+  "bitcoin",
+  "wallet address",
+  "seed phrase",
+];
+
+// Common benign phrases that can safely skip AI review
+const BENIGN_PHRASES = [
+  "do you know my no",
+  "know my number",
+  "know my no.",
+  "what is your name",
+  "how are you",
+  "hello",
+  "hi there",
+  "good morning",
+  "good afternoon",
+  "good evening",
+  "nice to meet you",
+  "what time is it",
+  "what day is it",
+  "thanks",
+  "thank you",
+  "what can you do",
+  "how can you help",
+  "who are you",
+  "what are you",
+  "help me with",
+  "can you explain",
+  "please tell me about",
+];
+
 /**
- * Pre-screen text to determine if AI analysis is needed
- * This method uses lightweight checks to avoid unnecessary AI API calls
+ * Enhanced pre-screen text to determine if AI analysis is needed
+ * Uses optimized patterns and intent detection to catch sensitive information
+ * while maintaining high performance
+ *
  * @param text Text to pre-screen
  * @param filterConfig Configuration for content filtering
- * @returns Boolean indicating if AI review is needed
+ * @returns Object with result and detected flags
  */
 export const isAIReviewNeeded = (
   text: string,
   filterConfig: Record<string, boolean> = {}
-): boolean => {
+): { needsReview: boolean; flags: string[]; reason?: string } => {
+  // Track flags and reasons
+  const flags: string[] = [];
+  let detectionReason: string | undefined;
+
+  // Normalize and default the filter config
+  // Treat undefined as false (disallowed), but explicit true as allowed
+  const normalizedConfig = {
+    allowAbuse: filterConfig.allowAbuse === true,
+    allowPhone: filterConfig.allowPhone === true,
+    allowEmail: filterConfig.allowEmail === true,
+    allowPhysicalInformation: filterConfig.allowPhysicalInformation === true,
+    allowSocialInformation: filterConfig.allowSocialInformation === true,
+  };
+
+  // STEP 1: Quick rejection checks - fastest operations first
+
   // If text is empty, no review needed
   if (!text || text.trim().length === 0) {
     setImmediate(() =>
       console.log(`[AI Pre-screen] Empty text, skipping AI review`)
     );
-    return false;
+    return { needsReview: false, flags: [] };
   }
 
-  // If text is too short (less than 3 words), likely no sensitive content
+  // If text is very short (less than 3 words), likely no sensitive content
   const wordCount = text.trim().split(/\s+/).length;
   if (wordCount < 3) {
     setImmediate(() =>
@@ -47,234 +273,349 @@ export const isAIReviewNeeded = (
         `[AI Pre-screen] Text too short (${wordCount} words), skipping AI review`
       )
     );
-    return false;
+    return { needsReview: false, flags: [] };
   }
 
-  // Normalize text for more accurate screening
+  // Normalize text for consistent matching
   const normalizedText = text.toLowerCase();
 
-  // Check for benign phrases that can safely skip AI review
-  const benignPhrases = [
-    "do you know my no",
-    "know my number",
-    "know my no.",
-    "what is your name",
-    "how are you",
-    "hello",
-    "hi there",
-    "good morning",
-    "good afternoon",
-    "good evening",
-    "nice to meet you",
-  ];
-
+  // For short messages, check against common benign phrases - but only skip if no sensitive patterns
   if (normalizedText.length < 50) {
-    for (const phrase of benignPhrases) {
+    let containsBenignPhrase = false;
+    for (const phrase of BENIGN_PHRASES) {
       if (normalizedText.includes(phrase)) {
+        containsBenignPhrase = true;
+        break;
+      }
+    }
+
+    // If it contains a benign phrase, still check for sensitive patterns before skipping
+    if (containsBenignPhrase) {
+      // Check for phone number patterns if phone numbers aren't allowed
+      if (!normalizedConfig.allowPhone) {
+        // Standard phone pattern check
+        if (PATTERNS.PHONE.STANDARD.test(text)) {
+          setImmediate(() =>
+            console.log(
+              `[AI Pre-screen] Detected phone number pattern despite benign phrase, AI review needed`
+            )
+          );
+          flags.push("phone_number");
+          detectionReason = "Contains a phone number";
+          return { needsReview: true, flags, reason: detectionReason };
+        }
+
+        // Spelled out numbers check
+        if (PATTERNS.PHONE.SPELLED.test(text)) {
+          setImmediate(() =>
+            console.log(
+              `[AI Pre-screen] Detected spelled-out phone number despite benign phrase, AI review needed`
+            )
+          );
+          flags.push("phone_number");
+          detectionReason = "Contains a spelled-out phone number";
+          return { needsReview: true, flags, reason: detectionReason };
+        }
+      }
+
+      // Check for email patterns if emails aren't allowed
+      if (
+        !normalizedConfig.allowEmail &&
+        (PATTERNS.EMAIL.STANDARD.test(text) ||
+          PATTERNS.EMAIL.OBFUSCATED.test(text))
+      ) {
         setImmediate(() =>
           console.log(
-            `[AI Pre-screen] Detected common benign phrase, skipping AI review`
+            `[AI Pre-screen] Detected email pattern despite benign phrase, AI review needed`
           )
         );
-        return false;
+        flags.push("email_address");
+        detectionReason = "Contains an email address";
+        return { needsReview: true, flags, reason: detectionReason };
       }
-    }
-  }
 
-  let needsReview = false;
-
-  // PHONE NUMBER DETECTION - simplified for speed
-  if (!filterConfig.allowPhone) {
-    // Simplified phone regex for speed
-    const phoneRegex = /\d{3}[-.\s)]\d{3}[-.\s]\d{4}|\d{10,}/;
-
-    // Phone intent phrases
-    const phoneIntentPhrases = ["call me", "my number", "phone", "text me"];
-
-    const hasPhonePattern = phoneRegex.test(normalizedText);
-    let hasPhoneIntent = false;
-
-    if (!hasPhonePattern) {
-      // Only check intent phrases if regex didn't match
-      for (const phrase of phoneIntentPhrases) {
-        if (normalizedText.includes(phrase)) {
-          hasPhoneIntent = true;
-          break;
-        }
+      // Check for social media patterns if social info isn't allowed
+      if (
+        !normalizedConfig.allowSocialInformation &&
+        (PATTERNS.SOCIAL.HANDLE.test(text) ||
+          PATTERNS.SOCIAL.DOMAINS.test(text))
+      ) {
+        setImmediate(() =>
+          console.log(
+            `[AI Pre-screen] Detected social media pattern despite benign phrase, AI review needed`
+          )
+        );
+        flags.push("social_media_handle");
+        detectionReason = "Contains a social media handle";
+        return { needsReview: true, flags, reason: detectionReason };
       }
-    }
 
-    if (hasPhonePattern || hasPhoneIntent) {
+      // If we got here, there's a benign phrase and no sensitive patterns, so we can skip AI review
       setImmediate(() =>
         console.log(
-          `[AI Pre-screen] Detected phone pattern or intent, AI review needed`
+          `[AI Pre-screen] Confirmed benign phrase with no sensitive patterns, skipping AI review`
         )
       );
-      return true; // Return early
+      return { needsReview: false, flags: [] };
     }
   }
 
-  // EMAIL DETECTION - simplified for speed
-  if (!filterConfig.allowEmail) {
-    // Simplified email check for speed
-    const emailRegex = /\S+@\S+\.\S+/;
+  // STEP 2: Fast global checks - string matching for critical terms
 
-    // Email intent phrases
-    const emailIntentPhrases = ["my email", "email me", "contact me"];
-
-    const hasEmailPattern = emailRegex.test(normalizedText);
-    let hasEmailIntent = false;
-
-    if (!hasEmailPattern) {
-      // Only check intent phrases if regex didn't match
-      for (const phrase of emailIntentPhrases) {
-        if (normalizedText.includes(phrase)) {
-          hasEmailIntent = true;
-          break;
-        }
-      }
-    }
-
-    if (hasEmailPattern || hasEmailIntent) {
-      setImmediate(() =>
-        console.log(
-          `[AI Pre-screen] Detected email pattern or intent, AI review needed`
-        )
-      );
-      return true; // Return early
-    }
-  }
-
-  // OFFENSIVE LANGUAGE DETECTION - simplified for speed
-  if (!filterConfig.allowAbuse) {
-    // Simplified offensive terms check
-    const offensiveRegex = /\b(shit|fuck|bitch|ass|idiot|stupid)\b/i;
-
-    // Offensive phrases
-    const offensiveIntentPhrases = ["hate you", "shut up", "kill yourself"];
-
-    const hasOffensivePattern = offensiveRegex.test(normalizedText);
-    let hasOffensiveIntent = false;
-
-    if (!hasOffensivePattern) {
-      // Only check intent phrases if regex didn't match
-      for (const phrase of offensiveIntentPhrases) {
-        if (normalizedText.includes(phrase)) {
-          hasOffensiveIntent = true;
-          break;
-        }
-      }
-    }
-
-    if (hasOffensivePattern || hasOffensiveIntent) {
-      setImmediate(() =>
-        console.log(
-          `[AI Pre-screen] Detected offensive content, AI review needed`
-        )
-      );
-      return true; // Return early
-    }
-  }
-
-  // PHYSICAL INFORMATION DETECTION - simplified for speed
-  if (!filterConfig.allowPhysicalInformation) {
-    // Simplified address check
-    const addressRegex = /\d+\s+[A-Za-z\s]+(st|ave|rd|dr|ln|blvd)/i;
-
-    // Simplified credit card pattern
-    const creditCardRegex = /\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}/;
-
-    // Location phrases
-    const locationPhrases = ["i live at", "my address", "come to"];
-
-    const hasAddressPattern = addressRegex.test(text);
-    const hasCreditCardPattern = creditCardRegex.test(text);
-    let hasLocationIntent = false;
-
-    if (!hasAddressPattern && !hasCreditCardPattern) {
-      // Only check intent phrases if patterns didn't match
-      for (const phrase of locationPhrases) {
-        if (normalizedText.includes(phrase)) {
-          hasLocationIntent = true;
-          break;
-        }
-      }
-    }
-
-    if (hasAddressPattern || hasCreditCardPattern || hasLocationIntent) {
-      setImmediate(() =>
-        console.log(
-          `[AI Pre-screen] Detected physical information, AI review needed`
-        )
-      );
-      return true; // Return early
-    }
-  }
-
-  // SOCIAL INFORMATION DETECTION - simplified for speed
-  if (!filterConfig.allowSocialInformation) {
-    // Simplified social media check
-    const socialMediaRegex = /@\w+|(?:instagram|twitter|facebook)\.com/i;
-
-    // Social phrases
-    const socialPhrases = ["follow me", "my profile", "username"];
-
-    const hasSocialPattern = socialMediaRegex.test(text);
-    let hasSocialIntent = false;
-
-    if (!hasSocialPattern) {
-      // Only check intent phrases if pattern didn't match
-      for (const phrase of socialPhrases) {
-        if (normalizedText.includes(phrase)) {
-          hasSocialIntent = true;
-          break;
-        }
-      }
-    }
-
-    if (hasSocialPattern || hasSocialIntent) {
-      setImmediate(() =>
-        console.log(
-          `[AI Pre-screen] Detected social media information, AI review needed`
-        )
-      );
-      return true; // Return early
-    }
-  }
-
-  // CRITICAL TERMS CHECK - direct string matching for maximum speed
-  const criticalTerms = [
-    "account number",
-    "routing number",
-    "cvv",
-    "bank account",
-    "ssn",
-    "social security",
-    "passport",
-    "license number",
-    "password",
-    "hack",
-    "exploit",
-  ];
-
-  for (const term of criticalTerms) {
+  // Check for critical terms - direct string matching (very fast)
+  for (const term of CRITICAL_TERMS) {
     if (normalizedText.includes(term)) {
       setImmediate(() =>
         console.log(
           `[AI Pre-screen] Detected critical term: ${term}, AI review needed`
         )
       );
-      return true; // Return early
+      flags.push("critical_term");
+      detectionReason = `Contains critical term: ${term}`;
+      return { needsReview: true, flags, reason: detectionReason };
     }
   }
 
-  // If we got here, no sensitive content was detected
+  // STEP 3: Obfuscation detection - catch evasion attempts
+
+  // Check for suspicious spacing/obfuscation patterns
+  if (PATTERNS.OBFUSCATION.SPACED.test(text)) {
+    setImmediate(() =>
+      console.log(
+        `[AI Pre-screen] Detected potential obfuscation pattern, AI review needed`
+      )
+    );
+    flags.push("obfuscation");
+    detectionReason =
+      "Contains suspicious text formatting that may hide sensitive information";
+    return { needsReview: true, flags, reason: detectionReason };
+  }
+
+  // STEP 4: Configuration-based checks - ONLY run checks for disallowed content types
+
+  // PHONE NUMBER DETECTION - Only check if not allowed
+  if (!normalizedConfig.allowPhone) {
+    // Check for standard phone patterns
+    if (PATTERNS.PHONE.STANDARD.test(text)) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected phone number pattern, AI review needed`
+        )
+      );
+      flags.push("phone_number");
+      detectionReason = "Contains a phone number";
+      return { needsReview: true, flags, reason: detectionReason };
+    }
+
+    // Check for spelled-out numbers
+    if (PATTERNS.PHONE.SPELLED.test(text)) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected spelled-out phone number, AI review needed`
+        )
+      );
+      flags.push("phone_number");
+      detectionReason = "Contains a spelled-out phone number";
+      return { needsReview: true, flags, reason: detectionReason };
+    }
+
+    // Check for phone sharing intent phrases
+    for (const phrase of INTENT_PHRASES.PHONE) {
+      if (normalizedText.includes(phrase)) {
+        setImmediate(() =>
+          console.log(
+            `[AI Pre-screen] Detected phone sharing intent: "${phrase}", AI review needed`
+          )
+        );
+        flags.push("phone_number_intent");
+        detectionReason = `Contains text indicating an attempt to share phone contact: "${phrase}"`;
+        return { needsReview: true, flags, reason: detectionReason };
+      }
+    }
+  } else {
+    setImmediate(() =>
+      console.log(`[AI Pre-screen] Skipping phone number check (allowed)`)
+    );
+  }
+
+  // EMAIL DETECTION - Only check if not allowed
+  if (!normalizedConfig.allowEmail) {
+    // Check for standard email patterns
+    if (PATTERNS.EMAIL.STANDARD.test(text)) {
+      setImmediate(() =>
+        console.log(`[AI Pre-screen] Detected email pattern, AI review needed`)
+      );
+      flags.push("email_address");
+      detectionReason = "Contains an email address";
+      return { needsReview: true, flags, reason: detectionReason };
+    }
+
+    // Check for obfuscated email patterns (e.g., user at domain dot com)
+    if (PATTERNS.EMAIL.OBFUSCATED.test(text)) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected obfuscated email pattern, AI review needed`
+        )
+      );
+      flags.push("email_address");
+      detectionReason = "Contains an obfuscated email address";
+      return { needsReview: true, flags, reason: detectionReason };
+    }
+
+    // Check for email sharing intent phrases
+    for (const phrase of INTENT_PHRASES.EMAIL) {
+      if (normalizedText.includes(phrase)) {
+        setImmediate(() =>
+          console.log(
+            `[AI Pre-screen] Detected email sharing intent: "${phrase}", AI review needed`
+          )
+        );
+        flags.push("email_intent");
+        detectionReason = `Contains text indicating an attempt to share email: "${phrase}"`;
+        return { needsReview: true, flags, reason: detectionReason };
+      }
+    }
+  } else {
+    setImmediate(() =>
+      console.log(`[AI Pre-screen] Skipping email check (allowed)`)
+    );
+  }
+
+  // OFFENSIVE LANGUAGE DETECTION - Only check if not allowed
+  if (!normalizedConfig.allowAbuse) {
+    // Check for offensive terms
+    if (PATTERNS.OFFENSIVE.TERMS.test(text)) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected offensive language, AI review needed`
+        )
+      );
+      flags.push("abusive_language");
+      detectionReason = "Contains offensive language";
+      return { needsReview: true, flags, reason: detectionReason };
+    }
+
+    // Check for offensive intent phrases
+    for (const phrase of INTENT_PHRASES.OFFENSIVE) {
+      if (normalizedText.includes(phrase)) {
+        setImmediate(() =>
+          console.log(
+            `[AI Pre-screen] Detected offensive intent: "${phrase}", AI review needed`
+          )
+        );
+        flags.push("abusive_intent");
+        detectionReason = `Contains text indicating offensive intent: "${phrase}"`;
+        return { needsReview: true, flags, reason: detectionReason };
+      }
+    }
+  } else {
+    setImmediate(() =>
+      console.log(`[AI Pre-screen] Skipping offensive language check (allowed)`)
+    );
+  }
+
+  // PHYSICAL INFORMATION DETECTION - Only check if not allowed
+  if (!normalizedConfig.allowPhysicalInformation) {
+    // Check for address patterns
+    if (PATTERNS.PHYSICAL.ADDRESS.test(text)) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected address pattern, AI review needed`
+        )
+      );
+      flags.push("physical_address");
+      detectionReason = "Contains a physical address";
+      return { needsReview: true, flags, reason: detectionReason };
+    }
+
+    // Check for credit card patterns
+    if (
+      PATTERNS.PHYSICAL.CREDIT_CARD.STANDARD.test(text) ||
+      PATTERNS.PHYSICAL.CREDIT_CARD.AMEX.test(text)
+    ) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected credit card pattern, AI review needed`
+        )
+      );
+      flags.push("credit_card");
+      detectionReason = "Contains a credit card number";
+      return { needsReview: true, flags, reason: detectionReason };
+    }
+
+    // Check for physical location sharing intent
+    for (const phrase of INTENT_PHRASES.PHYSICAL) {
+      if (normalizedText.includes(phrase)) {
+        setImmediate(() =>
+          console.log(
+            `[AI Pre-screen] Detected physical location sharing intent: "${phrase}", AI review needed`
+          )
+        );
+        flags.push("physical_location_intent");
+        detectionReason = `Contains text indicating an attempt to share physical location: "${phrase}"`;
+        return { needsReview: true, flags, reason: detectionReason };
+      }
+    }
+  } else {
+    setImmediate(() =>
+      console.log(
+        `[AI Pre-screen] Skipping physical information check (allowed)`
+      )
+    );
+  }
+
+  // SOCIAL INFORMATION DETECTION - Only check if not allowed
+  if (!normalizedConfig.allowSocialInformation) {
+    // Check for social media handle patterns
+    if (PATTERNS.SOCIAL.HANDLE.test(text)) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected social media handle, AI review needed`
+        )
+      );
+      flags.push("social_media_handle");
+      detectionReason = "Contains a social media handle";
+      return { needsReview: true, flags, reason: detectionReason };
+    }
+
+    // Check for social media domain patterns
+    if (PATTERNS.SOCIAL.DOMAINS.test(text)) {
+      setImmediate(() =>
+        console.log(
+          `[AI Pre-screen] Detected social media platform, AI review needed`
+        )
+      );
+      flags.push("social_media_link");
+      detectionReason = "Contains a social media link or platform reference";
+      return { needsReview: true, flags, reason: detectionReason };
+    }
+
+    // Check for social sharing intent
+    for (const phrase of INTENT_PHRASES.SOCIAL) {
+      if (normalizedText.includes(phrase)) {
+        setImmediate(() =>
+          console.log(
+            `[AI Pre-screen] Detected social media sharing intent: "${phrase}", AI review needed`
+          )
+        );
+        flags.push("social_media_intent");
+        detectionReason = `Contains text indicating an attempt to share social media contact: "${phrase}"`;
+        return { needsReview: true, flags, reason: detectionReason };
+      }
+    }
+  } else {
+    setImmediate(() =>
+      console.log(`[AI Pre-screen] Skipping social information check (allowed)`)
+    );
+  }
+
+  // No sensitive patterns detected
   setImmediate(() =>
     console.log(
       `[AI Pre-screen] No sensitive patterns detected, skipping AI review`
     )
   );
-  return false;
+  return { needsReview: false, flags: [] };
 };
 
 /**
@@ -295,7 +636,9 @@ export const analyzeTextContent = async (
   filteredContent?: string;
 }> => {
   // First check if AI review is even needed
-  if (!isAIReviewNeeded(text, filterConfig)) {
+  const prescreeningResult = isAIReviewNeeded(text, filterConfig);
+
+  if (!prescreeningResult.needsReview) {
     console.log(
       `[AI Analysis] Pre-screening determined AI review not needed, returning safe result`
     );
@@ -578,63 +921,122 @@ const formatMessageHistory = (
  * @returns System prompt
  */
 const createSystemPrompt = (filterConfig: Record<string, boolean>): string => {
-  // Base prompt
-  let prompt = `You are a highly precise content moderation AI specializing in detecting and filtering ACTUAL sensitive information. Your CRITICAL task is to accurately analyze content and identify ONLY REAL sensitive information, never flagging vague references or common phrases.
+  // Normalize and default the filter config
+  // Treat undefined as false (disallowed), but explicit true as allowed
+  const normalizedConfig = {
+    allowAbuse: filterConfig.allowAbuse === true,
+    allowPhone: filterConfig.allowPhone === true,
+    allowEmail: filterConfig.allowEmail === true,
+    allowPhysicalInformation: filterConfig.allowPhysicalInformation === true,
+    allowSocialInformation: filterConfig.allowSocialInformation === true,
+    generateFilteredContent: filterConfig.generateFilteredContent === true,
+  };
+
+  // Track which content types we need to check
+  const contentTypesToCheck = [];
+  if (!normalizedConfig.allowAbuse) contentTypesToCheck.push("abuse");
+  if (!normalizedConfig.allowPhone) contentTypesToCheck.push("phone");
+  if (!normalizedConfig.allowEmail) contentTypesToCheck.push("email");
+  if (!normalizedConfig.allowPhysicalInformation)
+    contentTypesToCheck.push("physical");
+  if (!normalizedConfig.allowSocialInformation)
+    contentTypesToCheck.push("social");
+
+  // If all content types are allowed, use a simplified prompt
+  if (contentTypesToCheck.length === 0) {
+    return `You are a content moderation AI. In this case, all content types have been explicitly allowed by the user.
+No moderation is needed for this content, so please return a passing result regardless of content.
+
+Your response MUST be in this EXACT JSON format:
+{
+  "isViolation": false,
+  "flags": [],
+  "reason": "All content types are allowed"${
+    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+  }
+}`;
+  }
+
+  // Begin standard prompt for normal cases
+  let prompt = `You are a highly precise content moderation AI specializing in detecting and filtering ACTUAL sensitive information. Your CRITICAL task is to achieve near-99% accuracy in identifying ONLY REAL, COMPLETE sensitive information, even when disguised or obfuscated. Never flag vague references, incomplete data, or common phrases unless they clearly contain sensitive content. Be vigilant against bypass attempts.
 
 DETECTION REQUIREMENTS: You must ONLY identify the following types of sensitive content:`;
 
-  // Add rules based on config
-  if (!filterConfig.allowAbuse) {
+  // Only include instructions for disallowed content types
+  if (!normalizedConfig.allowAbuse) {
     prompt += `
-- Abusive Language: ONLY clear and severe insults, hate speech, profanity, or explicitly offensive content. Do NOT flag mild criticism, slight rudeness, or common expressions like "this sucks" or "I'm annoyed".`;
+- Abusive Language: ONLY clear and severe insults, hate speech, profanity, or explicitly offensive content (e.g., racial slurs, threats). Do NOT flag mild criticism, slight rudeness, or casual expressions like "this sucks" or "I'm annoyed".`;
   }
 
-  if (!filterConfig.allowPhone) {
+  if (!normalizedConfig.allowPhone) {
     prompt += `
-- Phone Numbers: ONLY COMPLETE and REAL phone numbers including international formats with country codes (like +1 555-123-4567), local formats (like 555-123-4567), or plain digits in phone number format (like 5551234567). DO NOT flag:
-  * Incomplete number fragments (like "call 555" or "dial 1234")
-  * References to phone numbers without actual numbers (like "my phone" or "call me" or "do you know my no.")
-  * Random digits that aren't in phone number format (like "I scored 123456 points")
-  * Dates, addresses, or other number sequences not intended as phone numbers`;
+- Phone Numbers: ONLY COMPLETE and REAL phone numbers, including international formats (e.g., +1 555-123-4567), local formats (e.g., 555-123-4567), or plain digits (e.g., 5551234567). Detect disguised attempts like spelled-out digits (e.g., "five five five one two three four five six seven") or mixed formats (e.g., "five hundred fifty-five, 123-4567"). Look for 10-digit sequences (or 11 with country code) in context. DO NOT flag:
+  * Incomplete fragments (e.g., "call 555" or "dial 1234")
+  * Vague references (e.g., "my phone" or "call me")
+  * Random digits not in phone format (e.g., "I scored 123456 points")
+  * Examples: "five apples" or "year 2023" are NOT phone numbers`;
   }
 
-  if (!filterConfig.allowEmail) {
+  if (!normalizedConfig.allowEmail) {
     prompt += `
-- Email Addresses: ONLY COMPLETE and REAL email addresses with proper format (like user@example.com or name.surname@company.co.uk). DO NOT flag:
-  * Incomplete email fragments (like "contact me at gmail" or "my email is with hotmail")
-  * References to email without actual addresses (like "my email" or "send me an email")
-  * Simple @ symbols used in other contexts (like "@username" for social media)`;
+- Email Addresses: ONLY COMPLETE and REAL email addresses (e.g., user@example.com, name.surname@company.co.uk). Catch obfuscated forms like "user [at] example [dot] com", "userATexampleDOTcom", or "user at example dot com". Require username + domain + TLD. DO NOT flag:
+  * Incomplete fragments (e.g., "contact me at gmail")
+  * Vague refs (e.g., "my email" or "send me mail")
+  * Social media handles (e.g., "@username") unless part of a full email`;
   }
 
-  if (!filterConfig.allowPhysicalInformation) {
+  if (!normalizedConfig.allowPhysicalInformation) {
     prompt += `
-- Physical Information: ONLY COMPLETE and REAL physical addresses (like "123 Main St, Anytown, CA"), specific credit card numbers (16 digits, possibly separated by spaces/dashes), CVV codes, or other specific financial information. DO NOT flag:
-  * Vague location references (like "near downtown" or "in California")
-  * Incomplete address fragments (like "Main Street" without a number)
-  * References to payments without actual numbers (like "use my credit card")
-  * Random numbers that aren't in credit card format`;
+- Physical Information: ONLY COMPLETE and REAL physical addresses (e.g., "123 Main St, Anytown, CA"), credit card numbers (16 digits, e.g., "1234-5678-9012-3456"), CVV codes (3-4 digits with context), or specific financial details. Detect partial data if combinable (e.g., "123 Main St" + "Anytown"). DO NOT flag:
+  * Vague locations (e.g., "near downtown" or "in CA")
+  * Incomplete refs (e.g., "Main St" alone)
+  * Generic payment mentions (e.g., "use my card")
+  * Random numbers not in financial format`;
   }
 
-  if (!filterConfig.allowSocialInformation) {
+  if (!normalizedConfig.allowSocialInformation) {
     prompt += `
-- Social Information: ONLY COMPLETE and REAL social media handles (like @username), profile links (like instagram.com/username), or website URLs with personal identifiers. DO NOT flag:
-  * Generic platform mentions (like "I use Instagram" or "check Facebook")
-  * References to social media without specific handles (like "my profile" or "my account")
-  * Generic website domains without personal information (like example.com)`;
+- Social Information: ONLY COMPLETE and REAL social media handles (e.g., "@cooluser"), profile links (e.g., "instagram.com/cooluser"), or personal URLs. Catch indirect refs like "find me on the gram as cooluser" or "my TikTok is funuser". DO NOT flag:
+  * Generic platform mentions (e.g., "I use Twitter")
+  * Vague refs (e.g., "my profile")
+  * Non-personal URLs (e.g., "example.com")`;
   }
 
-  // Add format instruction with improved detail and emphasis
+  // Add special instruction for explicitly allowed content types
+  prompt += `\n\nIMPORTANT: The user has explicitly allowed the following content types:`;
+  if (normalizedConfig.allowAbuse)
+    prompt +=
+      "\n- Abusive language (DO NOT flag any profanity or offensive content)";
+  if (normalizedConfig.allowPhone)
+    prompt +=
+      "\n- Phone numbers (DO NOT flag any phone numbers, even complete ones)";
+  if (normalizedConfig.allowEmail)
+    prompt +=
+      "\n- Email addresses (DO NOT flag any email addresses, even complete ones)";
+  if (normalizedConfig.allowPhysicalInformation)
+    prompt +=
+      "\n- Physical information (DO NOT flag addresses, credit cards, or location information)";
+  if (normalizedConfig.allowSocialInformation)
+    prompt +=
+      "\n- Social information (DO NOT flag social media handles, usernames, or profiles)";
+
   prompt += `
 
-CRITICAL: ONLY mark content as violations if it contains ACTUAL, COMPLETE, REAL sensitive information - not vague references or incomplete data. Be extremely careful with false positives.
+CRITICAL: ONLY flag content with ACTUAL, COMPLETE, REAL sensitive information that is NOT in the allowed list. Analyze context to distinguish genuine data from coincidental phrases. Avoid false positives at all costs.
 
-EXAMPLES OF WHAT NOT TO FLAG:
-- "You can call me about the phone" - contains no actual phone number
-- "Do you know my no." - contains no actual phone number, just a reference
-- "My email is at gmail" - contains no complete email address
-- "I'm in New York" - general location, not a specific address
-- "Follow me online" - no specific social media handle
-- "John is stupid sometimes" - mild criticism, not severe abuse
+EXAMPLES TO FLAG (only if that content type is not allowed):
+- "Call me at 555-123-4567" → Phone number
+- "Contact me at five five five one two three four five six seven" → Disguised phone number
+- "Email: user [at] example [dot] com" → Obfuscated email
+- "I'm at 123 Main St, Anytown, CA" → Complete address
+- "Card: 1234-5678-9012-3456" → Credit card
+- "My Insta is cooluser" → Social handle
+
+EXAMPLES NOT TO FLAG:
+- "Five friends came over" → Not a phone number
+- "My email is private" → No email address
+- "I'm near the park" → Vague location
+- "Check Instagram" → No handle
 
 Your response MUST be in this EXACT JSON format:
 {
@@ -642,8 +1044,7 @@ Your response MUST be in this EXACT JSON format:
   "flags": ["flag1", "flag2", ...],
   "reason": "Brief explanation without showing the sensitive content"`;
 
-  // Add filtered content field if requested
-  if (filterConfig.generateFilteredContent) {
+  if (normalizedConfig.generateFilteredContent) {
     prompt += `,
   "filteredContent": "Original message with ALL sensitive information replaced with asterisks (*)"`;
   }
@@ -654,89 +1055,147 @@ Your response MUST be in this EXACT JSON format:
 Available flags: "abuse", "phone", "email", "address", "creditCard", "cvv", "socialMedia", "pii", "inappropriate"
 
 CRITICAL REQUIREMENTS:
-1. ONLY set "isViolation" to true if ACTUAL prohibited content is detected
-2. List ONLY relevant flags that apply
-3. In the "reason" field, be BRIEF and DO NOT include the actual sensitive content - instead use a generic reference like "contains a phone number" not "contains 555-123-4567"
-4. When in doubt, DO NOT flag the content. It is better to let borderline content through than to block legitimate communication.`;
+1. Set "isViolation" to true ONLY for ACTUAL prohibited content that's not explicitly allowed
+2. List ONLY relevant flags for disallowed content types 
+3. In "reason", be BRIEF and generic (e.g., "contains a phone number")
+4. When unsure, DO NOT flag—better to miss borderline cases than block legit content`;
 
-  // Add filtered content instructions if requested
-  if (filterConfig.generateFilteredContent) {
+  if (normalizedConfig.generateFilteredContent) {
     prompt += `
-5. FILTERED CONTENT GENERATION IS EXTREMELY IMPORTANT:
-   - You MUST replace THE ENTIRE sensitive information with asterisks (*), NOT just words like "phone" or "email"
-   - Example: "My phone number is 555-123-4567" → "My phone number is ***********"
-   - Example: "Call me at (123) 456-7890" → "Call me at **************"
-   - Example: "Email me at user@example.com" → "Email me at ******************"
-   - Replace ENTIRE phone numbers, ENTIRE email addresses, etc. with asterisks
-   - Preserve the structure of the message - only replace the sensitive parts
-   - The number of asterisks should roughly match the length of the filtered content`;
+5. FILTERED CONTENT RULES:
+   - Replace ENTIRE sensitive data with asterisks (*) ONLY FOR DISALLOWED CONTENT TYPES
+   - Do NOT censor allowed content types (${Object.entries(normalizedConfig)
+     .filter(([key, value]) => key.startsWith("allow") && value === true)
+     .map(([key]) => key.replace("allow", "").toLowerCase())
+     .join(", ")})
+   - E.g., "Call 555-123-4567" → "Call ***********" (only if phone numbers aren't allowed)
+   - Match asterisk count to data length, preserve message structure`;
   }
 
   prompt += `
 
-EXAMPLE 1 - REAL VIOLATION:
-User: "My phone number is 555-123-4567 and email is user@example.com"
-Your response:
+EXAMPLE RESPONSES:
+1. User: "Call me at +1-555-123-4567 or user@example.com"`;
+
+  if (!normalizedConfig.allowPhone && !normalizedConfig.allowEmail) {
+    prompt += `
 {
   "isViolation": true,
   "flags": ["phone", "email"],
-  "reason": "The content contains a phone number and an email address",
-  "filteredContent": "My phone number is *********** and email is ****************"
-}
-
-EXAMPLE 2 - NOT A VIOLATION:
-User: "You can call me about the phone"
-Your response:
-{
-  "isViolation": false,
-  "flags": [],
-  "reason": "Content passed all moderation checks",
-  "filteredContent": ""
-}
-
-EXAMPLE 3 - NOT A VIOLATION:
-User: "My email is at gmail"
-Your response:
-{
-  "isViolation": false,
-  "flags": [],
-  "reason": "Content passed all moderation checks",
-  "filteredContent": ""
-}
-
-EXAMPLE 4 - NOT A VIOLATION:
-User: "Hi how are you do you know my no."
-Your response:
-{
-  "isViolation": false,
-  "flags": [],
-  "reason": "Content passed all moderation checks",
-  "filteredContent": ""
-}
-
-EXAMPLE 5 - REAL VIOLATION:
-User: "Contact me at +1-555-123-4567"
-Your response:
+  "reason": "Contains a phone number and an email address"${
+    normalizedConfig.generateFilteredContent
+      ? ',\n  "filteredContent": "Call me at ************** or ******************"'
+      : ""
+  }
+}`;
+  } else if (!normalizedConfig.allowPhone && normalizedConfig.allowEmail) {
+    prompt += `
 {
   "isViolation": true,
   "flags": ["phone"],
-  "reason": "The content contains a phone number",
-  "filteredContent": "Contact me at **************"
-}
-
-If no violations are found, return:
+  "reason": "Contains a phone number"${
+    normalizedConfig.generateFilteredContent
+      ? ',\n  "filteredContent": "Call me at ************** or user@example.com"'
+      : ""
+  }
+}`;
+  } else if (normalizedConfig.allowPhone && !normalizedConfig.allowEmail) {
+    prompt += `
+{
+  "isViolation": true,
+  "flags": ["email"],
+  "reason": "Contains an email address"${
+    normalizedConfig.generateFilteredContent
+      ? ',\n  "filteredContent": "Call me at +1-555-123-4567 or ******************"'
+      : ""
+  }
+}`;
+  } else {
+    prompt += `
 {
   "isViolation": false,
   "flags": [],
-  "reason": "Content passed all moderation checks"`;
-
-  // Add empty filtered content for non-violations if requested
-  if (filterConfig.generateFilteredContent) {
-    prompt += `,
-  "filteredContent": ""`;
+  "reason": "Content passed all moderation checks"${
+    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+  }
+}`;
   }
 
   prompt += `
+
+2. User: "Five friends, not five five five"
+{
+  "isViolation": false,
+  "flags": [],
+  "reason": "Content passed all moderation checks"${
+    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+  }
+}
+
+3. User: "My TikTok is funuser, 123 Main St"`;
+
+  if (
+    !normalizedConfig.allowSocialInformation &&
+    !normalizedConfig.allowPhysicalInformation
+  ) {
+    prompt += `
+{
+  "isViolation": true,
+  "flags": ["socialMedia", "address"],
+  "reason": "Contains a social media handle and an address"${
+    normalizedConfig.generateFilteredContent
+      ? ',\n  "filteredContent": "My TikTok is *******, **************"'
+      : ""
+  }
+}`;
+  } else if (
+    !normalizedConfig.allowSocialInformation &&
+    normalizedConfig.allowPhysicalInformation
+  ) {
+    prompt += `
+{
+  "isViolation": true,
+  "flags": ["socialMedia"],
+  "reason": "Contains a social media handle"${
+    normalizedConfig.generateFilteredContent
+      ? ',\n  "filteredContent": "My TikTok is *******, 123 Main St"'
+      : ""
+  }
+}`;
+  } else if (
+    normalizedConfig.allowSocialInformation &&
+    !normalizedConfig.allowPhysicalInformation
+  ) {
+    prompt += `
+{
+  "isViolation": true,
+  "flags": ["address"],
+  "reason": "Contains an address"${
+    normalizedConfig.generateFilteredContent
+      ? ',\n  "filteredContent": "My TikTok is funuser, **************"'
+      : ""
+  }
+}`;
+  } else {
+    prompt += `
+{
+  "isViolation": false,
+  "flags": [],
+  "reason": "Content passed all moderation checks"${
+    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+  }
+}`;
+  }
+
+  prompt += `
+
+If no violations:
+{
+  "isViolation": false,
+  "flags": [],
+  "reason": "Content passed all moderation checks"${
+    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+  }
 }
 `;
 
