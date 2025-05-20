@@ -23,8 +23,7 @@ const KEY_PREFIXES = {
   PERFORMANCE: "stats:performance:",
   CACHE_DETAILED: "stats:cache:detailed:",
   AI_API_USAGE: "stats:api:usage:",
-  AI_RESPONSE_TIMES: "stats:ai:timeseries:",
-  IMAGE_RESPONSE_TIMES: "stats:image:timeseries:",
+  // Time series data prefixes removed to reduce Redis usage
 };
 
 /**
@@ -413,35 +412,10 @@ export const trackApiResponseTime = async (
   isCacheHit: boolean = false
 ): Promise<void> => {
   try {
-    const timestamp = Date.now();
-    const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-    const hour = new Date().getHours();
-
-    // Create keys for time-series data (one entry per minute)
-    const minute = Math.floor(Date.now() / 60000); // Current minute timestamp
-    const timeseriesKey =
-      apiType === "text"
-        ? `${KEY_PREFIXES.AI_RESPONSE_TIMES}${date}:${hour}:${minute % 60}`
-        : `${KEY_PREFIXES.IMAGE_RESPONSE_TIMES}${date}:${hour}:${minute % 60}`;
-
-    // Store data in Redis
+    // Store data in Redis - only track aggregate metrics
     const pipeline = statsPipeline();
 
-    // Add data point to time-series
-    pipeline.rpush(
-      timeseriesKey,
-      JSON.stringify({
-        timestamp,
-        responseTime: responseTimeMs,
-        isError,
-        isCacheHit,
-      })
-    );
-
-    // Set TTL for time-series data (keep for 7 days)
-    pipeline.expire(timeseriesKey, 60 * 60 * 24 * 7);
-
-    // Track summary metrics as well
+    // Track summary metrics only (removed time-series data storage)
     const metricPrefix = apiType === "text" ? "ai:api" : "image:api";
 
     // Increment call counts
@@ -529,9 +503,11 @@ export const getDetailedPerformanceStats = async () => {
 
 /**
  * Get performance data for a specific API type
+ * Note: Time series data retrieval has been removed to reduce Redis usage
+ *
  * @param apiType Type of API ('text' or 'image')
- * @param startTime Start timestamp (ms)
- * @param endTime End timestamp (ms)
+ * @param startTime Start timestamp (ms) - kept for API compatibility
+ * @param endTime End timestamp (ms) - kept for API compatibility
  */
 const getApiPerformanceData = async (
   apiType: "text" | "image",
@@ -566,9 +542,7 @@ const getApiPerformanceData = async (
   const cacheHitRate =
     totalRequests > 0 ? Math.round((hits / totalRequests) * 100) : 0;
 
-  // Get time-series data from Redis for response time distribution
-  const timeseriesData = await getTimeSeriesData(apiType, startTime, endTime);
-
+  // Return empty array for timeseriesData since we no longer store it
   return {
     totalCalls,
     errors,
@@ -578,12 +552,15 @@ const getApiPerformanceData = async (
     cacheMisses: misses,
     totalRequests,
     cacheHitRate,
-    timeseriesData,
+    timeseriesData: [], // Empty array since time series data is no longer stored
   };
 };
 
 /**
  * Get time-series data for response times
+ * Note: Time series data storage has been removed to reduce Redis usage
+ * This function now returns an empty array
+ *
  * @param apiType Type of API ('text' or 'image')
  * @param startTime Start timestamp (ms)
  * @param endTime End timestamp (ms)
@@ -593,80 +570,21 @@ const getTimeSeriesData = async (
   startTime: number,
   endTime: number
 ) => {
-  try {
-    // Get date range
-    const startDate = new Date(startTime);
-    const endDate = new Date(endTime);
-
-    // For simplicity, we'll just get the last 60 minutes of data
-    // For a full implementation, you would iterate through all dates in the range
-    const currentDate = new Date().toISOString().split("T")[0];
-    const currentHour = new Date().getHours();
-
-    // Create prefix for keys
-    const keyPrefix =
-      apiType === "text"
-        ? KEY_PREFIXES.AI_RESPONSE_TIMES
-        : KEY_PREFIXES.IMAGE_RESPONSE_TIMES;
-
-    // Get keys for the current hour
-    const keys = [];
-    for (let minute = 0; minute < 60; minute++) {
-      keys.push(`${keyPrefix}${currentDate}:${currentHour}:${minute}`);
-    }
-
-    // Get time-series data for each minute
-    const pipeline = statsPipeline();
-    keys.forEach((key) => pipeline.lrange(key, 0, -1));
-
-    const results = await pipeline.exec();
-    if (!results) {
-      return [];
-    }
-
-    // Define interface for time series data point
-    interface TimeSeriesDataPoint {
-      timestamp: number;
-      responseTime: number;
-      isError: boolean;
-      isCacheHit: boolean;
-    }
-
-    // Parse and flatten results
-    const timeseriesData: TimeSeriesDataPoint[] = [];
-    results.forEach((result: [Error | null, unknown], index: number) => {
-      const minuteData = result[1] as string[];
-      if (minuteData && minuteData.length > 0) {
-        minuteData.forEach((dataPoint) => {
-          try {
-            const data = JSON.parse(dataPoint) as TimeSeriesDataPoint;
-            // Only include data points within the time range
-            if (data.timestamp >= startTime && data.timestamp <= endTime) {
-              timeseriesData.push(data);
-            }
-          } catch (e) {
-            // Skip invalid data points
-          }
-        });
-      }
-    });
-
-    // Sort by timestamp
-    return timeseriesData.sort((a, b) => a.timestamp - b.timestamp);
-  } catch (error) {
-    console.error(`Error getting time-series data:`, error);
-    return [];
-  }
+  // Time series data storage has been removed
+  // Return an empty array to maintain API compatibility
+  return [];
 };
 
 /**
  * Get AI response time data for monitoring
+ * Note: Time series data storage has been removed to reduce Redis usage
+ * This function now returns only aggregate statistics
  */
 export const getAIResponseTimeData = async (
   timeRange: string = "24h",
   limit: number = 100
 ) => {
-  // Parse time range
+  // Parse time range (kept for API compatibility)
   const endTime = Date.now();
   let startTime = endTime;
 
@@ -684,36 +602,9 @@ export const getAIResponseTimeData = async (
   const textApiData = await getApiPerformanceData("text", startTime, endTime);
   const imageApiData = await getApiPerformanceData("image", startTime, endTime);
 
-  // Get response times (only last 'limit' number of points)
-  const textResponseTimes = textApiData.timeseriesData
-    .slice(-limit)
-    .map((data) => ({
-      timestamp: data.timestamp,
-      responseTime: data.responseTime,
-      isError: data.isError,
-      isCacheHit: data.isCacheHit,
-    }));
-
-  const imageResponseTimes = imageApiData.timeseriesData
-    .slice(-limit)
-    .map((data) => ({
-      timestamp: data.timestamp,
-      responseTime: data.responseTime,
-      isError: data.isError,
-      isCacheHit: data.isCacheHit,
-    }));
-
-  // Calculate P95 response time
-  const calcP95 = (times: number[]) => {
-    if (times.length === 0) return 0;
-    const sorted = [...times].sort((a, b) => a - b);
-    const index = Math.floor(sorted.length * 0.95);
-    return sorted[index] || sorted[sorted.length - 1];
-  };
-
-  // Extract just response times for p95 calculation
-  const textResponseTimeValues = textResponseTimes.map((d) => d.responseTime);
-  const imageResponseTimeValues = imageResponseTimes.map((d) => d.responseTime);
+  // Empty response times arrays (since time series data is no longer stored)
+  const textResponseTimes = [];
+  const imageResponseTimes = [];
 
   return {
     timeRange,
@@ -722,14 +613,14 @@ export const getAIResponseTimeData = async (
     textApi: {
       responseTimes: textResponseTimes,
       avgResponseTime: textApiData.avgResponseTime,
-      p95ResponseTime: calcP95(textResponseTimeValues),
+      p95ResponseTime: 0, // No data for p95 calculation
       errorRate: textApiData.errorRate,
       cacheHitRate: textApiData.cacheHitRate,
     },
     imageApi: {
       responseTimes: imageResponseTimes,
       avgResponseTime: imageApiData.avgResponseTime,
-      p95ResponseTime: calcP95(imageResponseTimeValues),
+      p95ResponseTime: 0, // No data for p95 calculation
       errorRate: imageApiData.errorRate,
       cacheHitRate: imageApiData.cacheHitRate,
     },
