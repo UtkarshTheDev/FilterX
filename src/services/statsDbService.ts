@@ -22,16 +22,20 @@ export async function aggregateAndStoreRequestStats(): Promise<boolean> {
     logger.info("Starting request stats aggregation");
     const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format
 
-    // Get current stats from Redis
-    const [totalRequests, filteredRequests, blockedRequests, cachedRequests] =
+    // Get current stats from Redis (using optimized key set)
+    const [totalRequests, blockedRequests, cachedRequests] =
       await statsGetMulti([
         "stats:requests:total",
-        "stats:requests:filtered",
         "stats:requests:blocked",
         "stats:requests:cached",
       ]);
 
-    // Get latency stats
+    // Calculate filtered requests (derived value)
+    const totalReq = parseInt(totalRequests || "0", 10);
+    const blockedReq = parseInt(blockedRequests || "0", 10);
+    const filteredRequests = (totalReq - blockedReq).toString();
+
+    // Get latency stats from the optimized latency list
     const latencyStats = await getLatencyStatsFromRedis();
 
     // Prepare data for database
@@ -99,48 +103,29 @@ export async function aggregateAndStoreApiPerformance(): Promise<boolean> {
       0
     );
 
-    // Get text API metrics
-    const [
-      textApiCalls,
-      textApiErrors,
-      textApiTotalTime,
-      textCacheHits,
-      textCacheMisses,
-    ] = await statsGetMulti([
-      "ai:api:calls",
-      "ai:api:errors",
-      "ai:api:total_time",
-      "ai:cache:hits",
-      "ai:cache:misses",
-    ]);
+    // Get API stats from consolidated hashes
+    const textApiData = (await redisClient.hgetall("api:stats:text")) || {};
+    const imageApiData = (await redisClient.hgetall("api:stats:image")) || {};
 
-    // Get image API metrics
-    const [
-      imageApiCalls,
-      imageApiErrors,
-      imageApiTotalTime,
-      imageCacheHits,
-      imageCacheMisses,
-    ] = await statsGetMulti([
-      "image:api:calls",
-      "image:api:errors",
-      "image:api:total_time",
-      "image:cache:hits",
-      "image:cache:misses",
-    ]);
+    // We're no longer tracking detailed cache stats
 
-    // Parse values
-    const textCalls = parseInt(textApiCalls || "0", 10);
-    const textErrors = parseInt(textApiErrors || "0", 10);
-    const textTotalTime = parseInt(textApiTotalTime || "0", 10);
-    const textHits = parseInt(textCacheHits || "0", 10);
-    const textMisses = parseInt(textCacheMisses || "0", 10);
+    // Parse text API stats
+    const textCalls = parseInt(textApiData["calls"] || "0", 10);
+    const textErrors = parseInt(textApiData["errors"] || "0", 10);
+    const textTotalTime = parseInt(textApiData["total_time"] || "0", 10);
 
-    const imageCalls = parseInt(imageApiCalls || "0", 10);
-    const imageErrors = parseInt(imageApiErrors || "0", 10);
-    const imageTotalTime = parseInt(imageApiTotalTime || "0", 10);
-    const imageHits = parseInt(imageCacheHits || "0", 10);
-    const imageMisses = parseInt(imageCacheMisses || "0", 10);
+    // Use default values for cache stats
+    const textHits = 0;
+    const textMisses = 0;
+
+    // Parse image API stats
+    const imageCalls = parseInt(imageApiData["calls"] || "0", 10);
+    const imageErrors = parseInt(imageApiData["errors"] || "0", 10);
+    const imageTotalTime = parseInt(imageApiData["total_time"] || "0", 10);
+
+    // Use default values for image cache stats
+    const imageHits = 0;
+    const imageMisses = 0;
 
     // Calculate average response times
     const textAvgTime =

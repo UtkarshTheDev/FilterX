@@ -130,10 +130,10 @@ export const filterContent = async (
         );
       });
 
-      // Track cache hits for monitoring - in background after response
+      // We're no longer tracking cache hits separately
+      // Just track the request with isCached=true
       setImmediate(async () => {
         try {
-          await statsIncrement("filter:cache:hits");
           // Track cached request in background
           await trackFilterRequest(
             userId,
@@ -155,14 +155,7 @@ export const filterContent = async (
       console.log(`[Filter] Cache miss, proceeding with content analysis`);
     });
 
-    // Track cache misses for monitoring - in background
-    setImmediate(async () => {
-      try {
-        await statsIncrement("filter:cache:misses");
-      } catch (error) {
-        console.error("[Filter] Error tracking cache miss:", error);
-      }
-    });
+    // We're no longer tracking cache misses separately
 
     // Process text content
     if (request.text) {
@@ -191,14 +184,9 @@ export const filterContent = async (
           );
         }
 
-        // Track pre-screening success for monitoring - in background after response
-        setImmediate(async () => {
-          try {
-            await statsIncrement("filter:prescreening:handled");
-            await statsIncrement("filter:prescreening:allowed");
-          } catch (error) {
-            console.error("[Filter] Error tracking prescreening stats:", error);
-          }
+        // We're no longer tracking prescreening stats
+        setImmediate(() => {
+          console.log("[Filter] Pre-screening allowed content");
         });
       } else {
         // If pre-screening detected sensitive content but config allows it,
@@ -234,16 +222,9 @@ export const filterContent = async (
             );
           });
 
-          setImmediate(async () => {
-            try {
-              await statsIncrement("filter:prescreening:handled");
-              await statsIncrement("filter:prescreening:allowed");
-            } catch (error) {
-              console.error(
-                "[Filter] Error tracking prescreening stats:",
-                error
-              );
-            }
+          // We're no longer tracking prescreening stats
+          setImmediate(() => {
+            console.log("[Filter] Pre-screening allowed sensitive content");
           });
         } else {
           // If pre-screening detected disallowed content, we can block immediately
@@ -287,17 +268,9 @@ export const filterContent = async (
               }
             }
 
-            // Track pre-screening block for monitoring
-            setImmediate(async () => {
-              try {
-                await statsIncrement("filter:prescreening:handled");
-                await statsIncrement("filter:prescreening:blocked");
-              } catch (error) {
-                console.error(
-                  "[Filter] Error tracking prescreening stats:",
-                  error
-                );
-              }
+            // We're no longer tracking prescreening stats
+            setImmediate(() => {
+              console.log("[Filter] Pre-screening blocked content");
             });
           } else {
             // Log pre-screening result in background
@@ -309,13 +282,9 @@ export const filterContent = async (
               );
             });
 
-            // Track AI analysis for monitoring - in background
-            setImmediate(async () => {
-              try {
-                await statsIncrement("filter:ai:called");
-              } catch (error) {
-                console.error("[Filter] Error tracking AI call stats:", error);
-              }
+            // We're no longer tracking AI call stats
+            setImmediate(() => {
+              console.log("[Filter] Proceeding with AI analysis");
             });
 
             const aiStartTime = Date.now();
@@ -571,16 +540,8 @@ export const filterContent = async (
         false
       );
 
-      // Track performance metrics for monitoring service health
-      if (processingTime < 100) {
-        await statsIncrement("filter:performance:under100ms");
-      } else if (processingTime < 500) {
-        await statsIncrement("filter:performance:under500ms");
-      } else if (processingTime < 1000) {
-        await statsIncrement("filter:performance:under1000ms");
-      } else {
-        await statsIncrement("filter:performance:over1000ms");
-      }
+      // We're no longer tracking detailed performance metrics
+      // The latency is already tracked in trackFilterRequest
 
       console.log(`[Filter] Background processing complete`);
     } catch (error) {

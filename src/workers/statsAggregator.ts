@@ -86,20 +86,90 @@ async function clearProcessedRedisKeys(): Promise<void> {
     // We don't clear all keys - only reset counters to zero
     // This ensures we don't lose data if the next aggregation fails
 
-    // Reset request counters
+    // Reset request counters (using optimized key set)
     // We don't delete them completely to maintain the keys for future increments
     await resetRedisCounter("stats:requests:total");
-    await resetRedisCounter("stats:requests:filtered");
     await resetRedisCounter("stats:requests:blocked");
     await resetRedisCounter("stats:requests:cached");
 
-    // Reset API performance counters
-    await resetRedisCounter("ai:api:calls");
-    await resetRedisCounter("ai:api:errors");
-    await resetRedisCounter("ai:api:total_time");
-    await resetRedisCounter("image:api:calls");
-    await resetRedisCounter("image:api:errors");
-    await resetRedisCounter("image:api:total_time");
+    // We're no longer using the consolidated cache hit rate hash
+
+    // Reset API performance hashes
+    await resetRedisHash("api:stats:text");
+    await resetRedisHash("api:stats:image");
+
+    // Reset AI and image stats
+    await resetRedisCounter("filter:ai:called");
+    await resetRedisCounter("filter:ai:blocked");
+    await resetRedisCounter("filter:ai:allowed");
+    await resetRedisCounter("filter:ai:errors");
+    await resetRedisCounter("filter:image:called");
+    await resetRedisCounter("filter:image:blocked");
+    await resetRedisCounter("filter:image:allowed");
+    await resetRedisCounter("filter:image:errors");
+
+    // Delete unused keys that we want to completely remove
+    // These keys are no longer needed and should be removed entirely
+    const keysToDelete = [
+      // Cache TTL tracking keys
+      "cache:ttl:count",
+      "cache:ttl:sum",
+
+      // Filter controller keys - specific keys that need to be removed
+      "filter:controller:under100ms",
+      "filter:controller:under500ms",
+      "filter:controller:under1000ms",
+      "filter:controller:over1000ms",
+
+      // Filter performance keys - specific keys that need to be removed
+      "filter:performance:under100ms",
+      "filter:performance:under500ms",
+      "filter:performance:under1000ms",
+      "filter:performance:over1000ms",
+
+      // Prescreening stats keys - specific keys that need to be removed
+      "filter:prescreening:allowed",
+      "filter:prescreening:blocked",
+      "filter:prescreening:handled",
+      "stats:prescreening:allowed",
+      "stats:prescreening:blocked",
+      "stats:prescreening:handled",
+
+      // Filter cache keys
+      "filter:cache:hits",
+      "filter:cache:misses",
+
+      // Consolidated cache hash
+      "stats:cache:unified",
+    ];
+
+    // Delete each pattern
+    for (const pattern of keysToDelete) {
+      try {
+        // If it's a pattern with wildcard, use keys command to find matches
+        if (pattern.includes("*")) {
+          const matchingKeys = await redisClient.keys(pattern);
+          if (matchingKeys.length > 0) {
+            await redisClient.del(...matchingKeys);
+            logger.debug(
+              `Deleted ${matchingKeys.length} keys matching pattern: ${pattern}`
+            );
+          }
+        } else {
+          // Direct key deletion
+          await redisClient.del(pattern);
+          logger.debug(`Deleted key: ${pattern}`);
+        }
+      } catch (error) {
+        logger.error(`Error deleting keys matching pattern ${pattern}:`, error);
+      }
+    }
+
+    // Trim latency list but don't clear it completely to maintain recent data
+    if (redisClient && redisClient.status === "ready") {
+      await redisClient.ltrim("stats:latency:all", 0, 499);
+      logger.debug("Trimmed latency samples list to 500 entries");
+    }
 
     logger.info("Successfully cleared processed Redis stats keys");
   } catch (error) {
@@ -121,6 +191,42 @@ async function resetRedisCounter(key: string): Promise<void> {
     }
   } catch (error) {
     logger.error(`Error resetting Redis counter ${key}:`, error);
+  }
+}
+
+/**
+ * Helper function to reset a Redis hash (delete and recreate empty)
+ * This is used for consolidated hash keys that store multiple fields
+ */
+async function resetRedisHash(key: string): Promise<void> {
+  try {
+    // Check if Redis client is available and connected
+    if (redisClient && redisClient.status === "ready") {
+      // Get all fields in the hash
+      const fields = await redisClient.hkeys(key);
+
+      if (fields.length > 0) {
+        // Delete the hash
+        await redisClient.del(key);
+
+        // Create an empty hash with the same fields set to 0
+        const pipeline = redisClient.pipeline();
+        fields.forEach((field) => {
+          pipeline.hset(key, field, "0");
+        });
+        await pipeline.exec();
+
+        logger.debug(
+          `Reset Redis hash ${key} with ${fields.length} fields to 0`
+        );
+      } else {
+        logger.debug(`Redis hash ${key} is empty, no reset needed`);
+      }
+    } else {
+      logger.warn(`Skipping reset of Redis hash ${key} - Redis not ready`);
+    }
+  } catch (error) {
+    logger.error(`Error resetting Redis hash ${key}:`, error);
   }
 }
 

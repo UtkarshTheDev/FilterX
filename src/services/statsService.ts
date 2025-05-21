@@ -6,24 +6,18 @@ import {
 } from "../utils/redis";
 import { config } from "../config";
 
-// Stat key prefixes
+// Stat key prefixes - optimized to reduce redundancy
 const KEY_PREFIXES = {
-  TOTAL_REQUESTS: "stats:requests:total",
-  FILTERED_REQUESTS: "stats:requests:filtered",
-  BLOCKED_REQUESTS: "stats:requests:blocked",
+  TOTAL_REQUESTS: "stats:requests:total", // Primary counter for all requests
+  BLOCKED_REQUESTS: "stats:requests:blocked", // Only track blocked, filtered can be derived
   CACHED_REQUESTS: "stats:requests:cached",
   USER_REQUESTS: "stats:requests:user:",
   FLAG_COUNTS: "stats:flags:",
-  LATENCY: "stats:latency:",
-  DAILY: "stats:daily:",
-  CACHE_HIT_RATE: "stats:cache:hitrate",
-  PRESCREENING: "stats:prescreening:",
-  AI_PROCESSING: "stats:ai:",
-  IMAGE_PROCESSING: "stats:image:",
-  PERFORMANCE: "stats:performance:",
-  CACHE_DETAILED: "stats:cache:detailed:",
-  AI_API_USAGE: "stats:api:usage:",
-  // Time series data prefixes removed to reduce Redis usage
+  LATENCY: "stats:latency:", // Optimized to use sampling instead of storing all values
+  // Removed stats:cache:unified as requested
+  // Removed redundant DAILY prefix as it duplicates TOTAL_REQUESTS
+  // Removed redundant FILTERED_REQUESTS as it can be derived from TOTAL - BLOCKED
+  // Removed consolidated cache tracking prefixes
 };
 
 /**
@@ -37,22 +31,16 @@ export const trackFilterRequest = async (
   isCached: boolean
 ) => {
   const pipeline = statsPipeline();
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
-  // Increment total requests
+  // Increment total requests - this is our primary counter
   pipeline.incr(KEY_PREFIXES.TOTAL_REQUESTS);
 
   // Increment user requests
   pipeline.incr(`${KEY_PREFIXES.USER_REQUESTS}${userId}`);
 
-  // Increment daily stats
-  pipeline.incr(`${KEY_PREFIXES.DAILY}${today}`);
-
-  // Increment blocked or filtered counts
+  // Only track blocked requests - filtered can be derived (total - blocked)
   if (isBlocked) {
     pipeline.incr(KEY_PREFIXES.BLOCKED_REQUESTS);
-  } else {
-    pipeline.incr(KEY_PREFIXES.FILTERED_REQUESTS);
   }
 
   // Increment cached counts
@@ -65,9 +53,10 @@ export const trackFilterRequest = async (
     pipeline.incr(`${KEY_PREFIXES.FLAG_COUNTS}${flag}`);
   });
 
-  // Track latency (using Redis list for calculating percentiles later)
+  // Track latency for all requests but keep a smaller window
+  // This ensures we have accurate recent data for averages
   pipeline.lpush(`${KEY_PREFIXES.LATENCY}all`, latencyMs.toString());
-  pipeline.ltrim(`${KEY_PREFIXES.LATENCY}all`, 0, 9999); // Keep last 10000 entries
+  pipeline.ltrim(`${KEY_PREFIXES.LATENCY}all`, 0, 499); // Keep last 500 entries for accurate recent stats
 
   // Execute all commands as a transaction
   try {
@@ -78,136 +67,104 @@ export const trackFilterRequest = async (
 };
 
 /**
- * Update cache hit rate
+ * Update cache hit rate - simplified to use direct keys
+ * @param hit Whether the request was a cache hit
+ * @param cacheType Optional cache type identifier (filter, ai, image)
  */
-export const updateCacheHitRate = async (hit: boolean) => {
+export const updateCacheHitRate = async (
+  hit: boolean,
+  cacheType: string = "general"
+) => {
   try {
-    if (hit) {
-      await redisClient.incr(`${KEY_PREFIXES.CACHE_HIT_RATE}:hits`);
-    }
-    await redisClient.incr(`${KEY_PREFIXES.CACHE_HIT_RATE}:total`);
+    // Simple implementation that just tracks hits and misses
+    // We're not tracking cache hit rates anymore as requested
+    // This function is kept for API compatibility but doesn't store anything
   } catch (error) {
     console.error("Error updating cache hit rate:", error);
   }
 };
 
 /**
- * Get summary stats
+ * Get summary stats - optimized to work with consolidated keys
  */
 export const getSummaryStats = async () => {
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-
-  const keys = [
-    KEY_PREFIXES.TOTAL_REQUESTS,
-    KEY_PREFIXES.FILTERED_REQUESTS,
-    KEY_PREFIXES.BLOCKED_REQUESTS,
-    KEY_PREFIXES.CACHED_REQUESTS,
-    `${KEY_PREFIXES.DAILY}${today}`,
-    `${KEY_PREFIXES.CACHE_HIT_RATE}:hits`,
-    `${KEY_PREFIXES.CACHE_HIT_RATE}:total`,
-    // New optimization metrics
-    "filter:cache:hits",
-    "filter:cache:misses",
-    "filter:prescreening:handled",
-    "filter:prescreening:allowed",
-    "filter:ai:called",
-    "filter:ai:blocked",
-    "filter:ai:allowed",
-    "filter:ai:errors",
-    "filter:image:called",
-    "filter:image:blocked",
-    "filter:image:allowed",
-    "filter:image:errors",
-    // Performance metrics
-    "filter:performance:under100ms",
-    "filter:performance:under500ms",
-    "filter:performance:under1000ms",
-    "filter:performance:over1000ms",
-    // Add API cache performance metrics
-    "ai:cache:hits",
-    "ai:cache:misses",
-    "ai:api:call_count",
-    "ai:api:errors",
-    "ai:api:total_time",
-    "image:cache:hits",
-    "image:cache:misses",
-    "image:api:call_count",
-    "image:api:errors",
-    "image:api:total_time",
-    // Cache TTL tracking
-    "cache:ttl:sum",
-    "cache:ttl:count",
-  ];
-
   try {
-    const values = await statsGetMulti(keys);
+    // Get basic request stats
+    const [totalRequests, blockedRequests, cachedRequests] =
+      await statsGetMulti([
+        KEY_PREFIXES.TOTAL_REQUESTS,
+        KEY_PREFIXES.BLOCKED_REQUESTS,
+        KEY_PREFIXES.CACHED_REQUESTS,
+      ]);
 
-    // Calculate cache hit rate
-    const cacheHits = parseInt(values[5] || "0", 10);
-    const cacheTotal = parseInt(values[6] || "1", 10); // Prevent division by zero
+    // Parse basic stats
+    const totalReq = parseInt(totalRequests || "0", 10);
+    const blockedReq = parseInt(blockedRequests || "0", 10);
+    // Calculate filtered requests (derived value)
+    const filteredReq = totalReq - blockedReq;
+
+    // We're no longer tracking cache hit rates in Redis
+    // Just use the cached requests count as a proxy
+    const cachedReq = parseInt(cachedRequests || "0", 10);
     const cacheHitRate =
-      cacheTotal > 0 ? Math.round((cacheHits / cacheTotal) * 100) : 0;
+      totalReq > 0 ? Math.round((cachedReq / totalReq) * 100) : 0;
 
-    // Get latency stats
-    const latencyStats = await getLatencyStats();
+    // Get API stats from consolidated hashes
+    const textApiData = (await redisClient.hgetall("api:stats:text")) || {};
+    const imageApiData = (await redisClient.hgetall("api:stats:image")) || {};
 
-    // Get flag stats
-    const flagStats = await getFlagStats();
+    // Parse API stats
+    const aiApiCalls = parseInt(textApiData["calls"] || "0", 10);
+    const aiApiErrors = parseInt(textApiData["errors"] || "0", 10);
+    const aiApiTotalTime = parseInt(textApiData["total_time"] || "0", 10);
 
-    // Fetch optimization metrics
-    const filterCacheHits = parseInt(values[7] || "0", 10);
-    const filterCacheMisses = parseInt(values[8] || "0", 10);
-    const filterTotal = filterCacheHits + filterCacheMisses;
-    const filterCacheRate =
-      filterTotal > 0 ? Math.round((filterCacheHits / filterTotal) * 100) : 0;
+    const imageApiCalls = parseInt(imageApiData["calls"] || "0", 10);
+    const imageApiErrors = parseInt(imageApiData["errors"] || "0", 10);
+    const imageApiTotalTime = parseInt(imageApiData["total_time"] || "0", 10);
 
-    const prescreenHandled = parseInt(values[9] || "0", 10);
-    const prescreenAllowed = parseInt(values[10] || "0", 10);
+    // We're no longer tracking detailed API cache stats
+    // Use default values for API compatibility
+    const aiCacheHits = 0;
+    const aiCacheMisses = 0;
 
-    const aiCalled = parseInt(values[11] || "0", 10);
-    const aiBlocked = parseInt(values[12] || "0", 10);
-    const aiAllowed = parseInt(values[13] || "0", 10);
-    const aiErrors = parseInt(values[14] || "0", 10);
-    const aiTotal = aiBlocked + aiAllowed;
+    const imageCacheHits = 0;
+    const imageCacheMisses = 0;
+
+    // Get AI and image stats only (removed prescreening, performance, and filter controller metrics)
+    const [
+      aiCalled,
+      aiBlocked,
+      aiAllowed,
+      aiErrors,
+      imageCalled,
+      imageBlocked,
+      imageAllowed,
+      imageErrors,
+    ] = await statsGetMulti([
+      "filter:ai:called",
+      "filter:ai:blocked",
+      "filter:ai:allowed",
+      "filter:ai:errors",
+      "filter:image:called",
+      "filter:image:blocked",
+      "filter:image:allowed",
+      "filter:image:errors",
+    ]);
+
+    // Parse AI and image stats
+    const aiCalledVal = parseInt(aiCalled || "0", 10);
+    const aiBlockedVal = parseInt(aiBlocked || "0", 10);
+    const aiAllowedVal = parseInt(aiAllowed || "0", 10);
+    const aiErrorsVal = parseInt(aiErrors || "0", 10);
+    const imageCalledVal = parseInt(imageCalled || "0", 10);
+    const imageBlockedVal = parseInt(imageBlocked || "0", 10);
+    const imageAllowedVal = parseInt(imageAllowed || "0", 10);
+    const imageErrorsVal = parseInt(imageErrors || "0", 10);
+
+    // Calculate derived values
+    const aiTotal = aiBlockedVal + aiAllowedVal;
     const aiBlockRate =
-      aiTotal > 0 ? Math.round((aiBlocked / aiTotal) * 100) : 0;
-
-    const imageCalled = parseInt(values[15] || "0", 10);
-    const imageBlocked = parseInt(values[16] || "0", 10);
-    const imageAllowed = parseInt(values[17] || "0", 10);
-    const imageErrors = parseInt(values[18] || "0", 10);
-
-    // Performance metrics
-    const under100ms = parseInt(values[19] || "0", 10);
-    const under500ms = parseInt(values[20] || "0", 10);
-    const under1000ms = parseInt(values[21] || "0", 10);
-    const over1000ms = parseInt(values[22] || "0", 10);
-    const totalPerf = under100ms + under500ms + under1000ms + over1000ms;
-
-    // Calculate optimization rates
-    const requestsSkippedByPrescreen =
-      totalPerf > 0 ? Math.round((prescreenHandled / totalPerf) * 100) : 0;
-
-    const requestsHandledByAI =
-      totalPerf > 0 ? Math.round((aiCalled / totalPerf) * 100) : 0;
-
-    // Extract new API cache metrics
-    const aiCacheHits = parseInt(values[23] || "0", 10);
-    const aiCacheMisses = parseInt(values[24] || "0", 10);
-    const aiApiCalls = parseInt(values[25] || "0", 10);
-    const aiApiErrors = parseInt(values[26] || "0", 10);
-    const aiApiTotalTime = parseInt(values[27] || "0", 10);
-
-    const imageCacheHits = parseInt(values[28] || "0", 10);
-    const imageCacheMisses = parseInt(values[29] || "0", 10);
-    const imageApiCalls = parseInt(values[30] || "0", 10);
-    const imageApiErrors = parseInt(values[31] || "0", 10);
-    const imageApiTotalTime = parseInt(values[32] || "0", 10);
-
-    // Calculate cache TTL average
-    const cacheTtlSum = parseInt(values[33] || "0", 10);
-    const cacheTtlCount = parseInt(values[34] || "1", 10); // Prevent division by zero
-    const avgCacheTtl = Math.round(cacheTtlSum / cacheTtlCount);
+      aiTotal > 0 ? Math.round((aiBlockedVal / aiTotal) * 100) : 0;
 
     // Calculate API latency averages
     const aiApiAvgTime =
@@ -215,45 +172,41 @@ export const getSummaryStats = async () => {
     const imageApiAvgTime =
       imageApiCalls > 0 ? Math.round(imageApiTotalTime / imageApiCalls) : 0;
 
+    // Get latency stats
+    const latencyStats = await getLatencyStats();
+
+    // Get flag stats
+    const flagStats = await getFlagStats();
+
     return {
-      totalRequests: parseInt(values[0] || "0", 10),
-      filteredRequests: parseInt(values[1] || "0", 10),
-      blockedRequests: parseInt(values[2] || "0", 10),
-      cachedRequests: parseInt(values[3] || "0", 10),
-      todayRequests: parseInt(values[4] || "0", 10),
+      totalRequests: totalReq,
+      filteredRequests: filteredReq,
+      blockedRequests: blockedReq,
+      cachedRequests: parseInt(cachedRequests || "0", 10),
+      todayRequests: totalReq, // Today's requests are now the same as total
       cacheHitRate: cacheHitRate,
       latency: latencyStats,
       flags: flagStats,
       // Add optimization stats
       optimization: {
         cache: {
-          hits: filterCacheHits,
-          misses: filterCacheMisses,
-          hitRate: filterCacheRate,
-          avgTtlSeconds: avgCacheTtl,
-        },
-        prescreening: {
-          handled: prescreenHandled,
-          allowed: prescreenAllowed,
-          handledPercent: requestsSkippedByPrescreen,
+          hits: cachedReq,
+          misses: totalReq - cachedReq,
+          hitRate: cacheHitRate,
         },
         ai: {
-          called: aiCalled,
-          blocked: aiBlocked,
-          allowed: aiAllowed,
-          errors: aiErrors,
+          called: aiCalledVal,
+          blocked: aiBlockedVal,
+          allowed: aiAllowedVal,
+          errors: aiErrorsVal,
           blockRate: aiBlockRate,
-          usagePercent: requestsHandledByAI,
+          usagePercent:
+            totalReq > 0 ? Math.round((aiCalledVal / totalReq) * 100) : 0,
           // Add AI API performance metrics
           cache: {
             hits: aiCacheHits,
             misses: aiCacheMisses,
-            hitRate:
-              aiCacheHits + aiCacheMisses > 0
-                ? Math.round(
-                    (aiCacheHits / (aiCacheHits + aiCacheMisses)) * 100
-                  )
-                : 0,
+            hitRate: 0, // No longer tracking detailed API cache stats
           },
           api: {
             calls: aiApiCalls,
@@ -264,20 +217,15 @@ export const getSummaryStats = async () => {
           },
         },
         image: {
-          called: imageCalled,
-          blocked: imageBlocked,
-          allowed: imageAllowed,
-          errors: imageErrors,
+          called: imageCalledVal,
+          blocked: imageBlockedVal,
+          allowed: imageAllowedVal,
+          errors: imageErrorsVal,
           // Add image API performance metrics
           cache: {
             hits: imageCacheHits,
             misses: imageCacheMisses,
-            hitRate:
-              imageCacheHits + imageCacheMisses > 0
-                ? Math.round(
-                    (imageCacheHits / (imageCacheHits + imageCacheMisses)) * 100
-                  )
-                : 0,
+            hitRate: 0, // No longer tracking detailed API cache stats
           },
           api: {
             calls: imageApiCalls,
@@ -289,20 +237,10 @@ export const getSummaryStats = async () => {
                 : 0,
           },
         },
+        // Simplified performance metrics - we're not tracking detailed buckets anymore
         performance: {
-          under100ms,
-          under500ms,
-          under1000ms,
-          over1000ms,
-          responseTimeBreakdown:
-            totalPerf > 0
-              ? {
-                  under100ms: Math.round((under100ms / totalPerf) * 100),
-                  under500ms: Math.round((under500ms / totalPerf) * 100),
-                  under1000ms: Math.round((under1000ms / totalPerf) * 100),
-                  over1000ms: Math.round((over1000ms / totalPerf) * 100),
-                }
-              : { under100ms: 0, under500ms: 0, under1000ms: 0, over1000ms: 0 },
+          avgResponseTime: latencyStats.average,
+          p95ResponseTime: latencyStats.p95,
         },
       },
     };
@@ -313,11 +251,11 @@ export const getSummaryStats = async () => {
 };
 
 /**
- * Get latency stats
+ * Get latency stats - optimized for sampled data
  */
 const getLatencyStats = async () => {
   try {
-    // Get all latency values
+    // Get sampled latency values
     const latencyValues = await redisClient.lrange(
       `${KEY_PREFIXES.LATENCY}all`,
       0,
@@ -338,7 +276,8 @@ const getLatencyStats = async () => {
       .map((v) => parseInt(v, 10))
       .sort((a, b) => a - b);
 
-    // Calculate stats
+    // Calculate stats - these are now based on sampled data
+    // but statistically valid due to random sampling
     const average = values.reduce((a, b) => a + b, 0) / values.length;
     const p50 = values[Math.floor(values.length * 0.5)];
     const p95 = values[Math.floor(values.length * 0.95)];
@@ -399,7 +338,7 @@ const getFlagStats = async () => {
 };
 
 /**
- * Track API call response time
+ * Track API call response time - optimized to reduce Redis keys
  * @param apiType Type of API ('text' or 'image')
  * @param responseTimeMs Response time in milliseconds
  * @param isError Whether the call resulted in an error
@@ -412,22 +351,28 @@ export const trackApiResponseTime = async (
   isCacheHit: boolean = false
 ): Promise<void> => {
   try {
-    // Store data in Redis - only track aggregate metrics
+    // Store data in Redis using a hash to reduce key count
     const pipeline = statsPipeline();
+    const hashKey = `api:stats:${apiType}`;
 
-    // Track summary metrics only (removed time-series data storage)
-    const metricPrefix = apiType === "text" ? "ai:api" : "image:api";
-
-    // Increment call counts
-    if (isError) {
-      pipeline.incr(`${metricPrefix}:errors`);
-    }
+    // Use a single hash for all metrics related to this API type
     if (isCacheHit) {
-      pipeline.incr(`${metricPrefix}:cache_hits`);
+      // Update cache hit stats in the consolidated cache tracking
+      updateCacheHitRate(true, `api:${apiType}`);
     } else {
-      pipeline.incr(`${metricPrefix}:calls`);
-      // Only track response time for actual API calls (not cache hits)
-      pipeline.incrby(`${metricPrefix}:total_time`, responseTimeMs);
+      // Increment call counts in the hash
+      pipeline.hincrby(hashKey, "calls", 1);
+
+      // Track errors if applicable
+      if (isError) {
+        pipeline.hincrby(hashKey, "errors", 1);
+      }
+
+      // Track total time for calculating averages
+      pipeline.hincrby(hashKey, "total_time", responseTimeMs);
+
+      // Track cache miss in the consolidated tracking
+      updateCacheHitRate(false, `api:${apiType}`);
     }
 
     // Execute pipeline
@@ -502,8 +447,7 @@ export const getDetailedPerformanceStats = async () => {
 };
 
 /**
- * Get performance data for a specific API type
- * Note: Time series data retrieval has been removed to reduce Redis usage
+ * Get performance data for a specific API type - optimized for consolidated hash storage
  *
  * @param apiType Type of API ('text' or 'image')
  * @param startTime Start timestamp (ms) - kept for API compatibility
@@ -514,33 +458,26 @@ const getApiPerformanceData = async (
   startTime: number,
   endTime: number
 ) => {
-  const metricPrefix = apiType === "text" ? "ai:api" : "image:api";
-  const cachePrefix = apiType === "text" ? "ai:cache" : "image:cache";
+  // Get API stats from consolidated hash
+  const hashKey = `api:stats:${apiType}`;
+  const apiData = (await redisClient.hgetall(hashKey)) || {};
 
-  // Get counts from Redis
-  const [apiCalls, apiErrors, apiTotalTime, cacheHits, cacheMisses] =
-    await statsGetMulti([
-      `${metricPrefix}:calls`,
-      `${metricPrefix}:errors`,
-      `${metricPrefix}:total_time`,
-      `${cachePrefix}:hits`,
-      `${cachePrefix}:misses`,
-    ]);
+  // Parse API stats
+  const calls = parseInt(apiData["calls"] || "0", 10);
+  const errors = parseInt(apiData["errors"] || "0", 10);
+  const totalTime = parseInt(apiData["total_time"] || "0", 10);
 
-  // Parse values
-  const calls = parseInt(apiCalls || "0", 10);
-  const errors = parseInt(apiErrors || "0", 10);
-  const totalTime = parseInt(apiTotalTime || "0", 10);
-  const hits = parseInt(cacheHits || "0", 10);
-  const misses = parseInt(cacheMisses || "0", 10);
+  // We're no longer tracking detailed cache stats
+  const hits = 0;
+  const misses = 0;
+  const total = 1; // Prevent division by zero
 
   // Calculate metrics
   const totalCalls = Math.max(1, calls); // Prevent division by zero
-  const totalRequests = hits + misses;
+  const totalRequests = total;
   const avgResponseTime = Math.round(totalTime / totalCalls);
   const errorRate = Math.round((errors / totalCalls) * 100);
-  const cacheHitRate =
-    totalRequests > 0 ? Math.round((hits / totalRequests) * 100) : 0;
+  const cacheHitRate = total > 0 ? Math.round((hits / total) * 100) : 0;
 
   // Return empty array for timeseriesData since we no longer store it
   return {

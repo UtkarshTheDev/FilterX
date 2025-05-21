@@ -57,24 +57,7 @@ export const filterController = {
         // Log performance metrics
         console.log(`[Controller] Request processed in ${processingTime}ms`);
 
-        // Track performance metrics
-        if (processingTime < 50) {
-          statsIncrement("filter:controller:under50ms").catch((err: Error) => {
-            console.error("Error tracking performance metrics:", err);
-          });
-        } else if (processingTime < 100) {
-          statsIncrement("filter:controller:under100ms").catch((err: Error) => {
-            console.error("Error tracking performance metrics:", err);
-          });
-        } else if (processingTime < 200) {
-          statsIncrement("filter:controller:under200ms").catch((err: Error) => {
-            console.error("Error tracking performance metrics:", err);
-          });
-        } else {
-          statsIncrement("filter:controller:over200ms").catch((err: Error) => {
-            console.error("Error tracking performance metrics:", err);
-          });
-        }
+        // We're no longer tracking detailed controller performance metrics
       });
     }
   ),

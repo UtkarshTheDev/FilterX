@@ -181,15 +181,6 @@ export const setCachedResponse = async (
       // Use a longer TTL for AI-based results to maximize cache usage
       // This improves performance significantly for similar requests
       await cacheSet(cacheKey, JSON.stringify(response), ttl);
-
-      // Track TTL stats in background
-      try {
-        // Track the TTL used for monitoring
-        await statsIncrement("cache:ttl:sum", ttl);
-        await statsIncrement("cache:ttl:count");
-      } catch (error) {
-        console.error("Error tracking cache TTL stats:", error);
-      }
     } catch (error) {
       console.error("Error setting cached response:", error);
     }
