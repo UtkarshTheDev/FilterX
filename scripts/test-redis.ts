@@ -7,12 +7,11 @@ import { config } from "../src/config";
  */
 const testRedis = async () => {
   console.log("Testing Redis connection...");
-  console.log(`Redis URL: ${config.redis.url}`);
+  console.log(`Redis URL: ${config.redis.uri}`);
 
   try {
     // Create Redis client
-    const redis = new Redis(config.redis.url, {
-      password: config.redis.password,
+    const redis = new Redis(config.redis.uri, {
       retryStrategy: (times) => {
         const delay = Math.min(times * 50, 2000);
         return delay;

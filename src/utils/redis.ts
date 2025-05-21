@@ -126,7 +126,7 @@ export const getRedisClient = (): Redis => {
       // Other options
       maxRetriesPerRequest: 2, // Lower value to fail faster on individual commands
       connectTimeout: 10000, // Shorter timeout for initial connection
-      enableOfflineQueue: false, // Don't queue commands when disconnected - fail fast
+      enableOfflineQueue: true, // Queue commands when disconnected to prevent errors
       enableAutoPipelining: false,
       lazyConnect: false, // Connect immediately
       keepAlive: 10000, // Keep alive packet every 10 seconds
@@ -228,11 +228,17 @@ export const cacheDelete = async (key: string): Promise<void> => {
 // Helper functions for stats with error handling
 export const statsIncrement = async (
   key: string,
-  increment: number = 1
+  increment: number = 1,
+  ttlSeconds: number = 3600 // 1 hour default TTL for stats
 ): Promise<number> => {
   try {
     if (isRedisAvailable && redisClient) {
-      return await redisClient.incrby(key, increment);
+      const result = await redisClient.incrby(key, increment);
+
+      // Set TTL if not already set (won't override existing TTL)
+      await redisClient.expire(key, ttlSeconds, "NX");
+
+      return result;
     } else {
       logger.debug(`Using memory cache for incrby: ${key}`);
       return await memoryCache.incrby(key, increment);

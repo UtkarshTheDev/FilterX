@@ -4,6 +4,13 @@ import { getSummaryStats } from "../services/statsService";
 import { isRedisHealthy } from "../utils/redis";
 import { isDatabaseHealthy } from "../db";
 import logger from "../utils/logger";
+import {
+  getHistoricalRequestStats,
+  getHistoricalApiPerformance,
+  getHistoricalContentFlags,
+  getCombinedStats,
+  getUserActivityStats,
+} from "../services/statsHistoryService";
 
 /**
  * Controller for handling stats operations
@@ -30,14 +37,111 @@ export const statsController = {
 
   /**
    * Get user-specific statistics
-   * (placeholder for future implementation)
    */
   getUserStats: asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
+      // Get user ID from route params
+      const userId = req.params.userId || req.query.userId;
+
+      if (!userId) {
+        return res.status(400).json({
+          error: "User ID is required",
+        });
+      }
+
+      // Get date range from query params with defaults
+      const endDate =
+        (req.query.endDate as string) || new Date().toISOString().split("T")[0];
+
+      // Default start date is 30 days before end date
+      const defaultStartDate = new Date(endDate);
+      defaultStartDate.setDate(defaultStartDate.getDate() - 30);
+      const startDate =
+        (req.query.startDate as string) ||
+        defaultStartDate.toISOString().split("T")[0];
+
+      // Validate date format
+      if (!isValidDateFormat(startDate) || !isValidDateFormat(endDate)) {
+        return res.status(400).json({
+          error: "Invalid date format. Use YYYY-MM-DD format.",
+        });
+      }
+
+      const stats = await getUserActivityStats(
+        userId as string,
+        startDate,
+        endDate
+      );
       return res.status(200).json({
-        message: "User statistics endpoint - To be implemented",
+        userId,
+        startDate,
+        endDate,
         timestamp: new Date().toISOString(),
+        stats,
       });
+    }
+  ),
+
+  /**
+   * Get historical request statistics from database
+   */
+  getHistoricalStats: asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+      // Get date range from query params with defaults
+      const endDate =
+        (req.query.endDate as string) || new Date().toISOString().split("T")[0];
+
+      // Default start date is 7 days before end date
+      const defaultStartDate = new Date(endDate);
+      defaultStartDate.setDate(defaultStartDate.getDate() - 7);
+      const startDate =
+        (req.query.startDate as string) ||
+        defaultStartDate.toISOString().split("T")[0];
+
+      // Validate date format
+      if (!isValidDateFormat(startDate) || !isValidDateFormat(endDate)) {
+        return res.status(400).json({
+          error: "Invalid date format. Use YYYY-MM-DD format.",
+        });
+      }
+
+      const requestStats = await getHistoricalRequestStats(startDate, endDate);
+      const contentFlags = await getHistoricalContentFlags(startDate, endDate);
+      const apiPerformance = await getHistoricalApiPerformance(
+        startDate,
+        endDate
+      );
+
+      return res.status(200).json({
+        startDate,
+        endDate,
+        timestamp: new Date().toISOString(),
+        stats: {
+          requestStats,
+          contentFlags,
+          apiPerformance,
+        },
+      });
+    }
+  ),
+
+  /**
+   * Get combined stats (recent from Redis + historical from database)
+   */
+  getCombinedStats: asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+      // Get time range from query params with default
+      const timeRange = (req.query.timeRange as string) || "24h";
+
+      // Validate time range
+      if (!["1h", "24h", "7d", "30d"].includes(timeRange)) {
+        return res.status(400).json({
+          error: "Invalid time range. Use '1h', '24h', '7d', or '30d'.",
+        });
+      }
+
+      const stats = await getCombinedStats(timeRange);
+      return res.status(200).json(stats);
     }
   ),
 
@@ -81,3 +185,14 @@ export const statsController = {
     }
   ),
 };
+
+/**
+ * Helper function to validate date format (YYYY-MM-DD)
+ */
+function isValidDateFormat(dateString: string): boolean {
+  const regex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!regex.test(dateString)) return false;
+
+  const date = new Date(dateString);
+  return date instanceof Date && !isNaN(date.getTime());
+}

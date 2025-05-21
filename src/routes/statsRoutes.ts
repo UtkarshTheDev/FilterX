@@ -6,6 +6,7 @@ import {
   getAIResponseTimeData,
 } from "../services/statsService";
 import type { Request, Response } from "express";
+import { statsController } from "../controllers/statsController";
 
 // Create router
 const router = Router();
@@ -61,5 +62,29 @@ router.get(
     });
   })
 );
+
+/**
+ * Get historical statistics from database
+ * @route GET /stats/historical
+ * @group Stats - Historical statistics from database
+ * @returns {object} 200 - Historical statistics
+ */
+router.get("/historical", statsController.getHistoricalStats);
+
+/**
+ * Get combined statistics (recent + historical)
+ * @route GET /stats/combined
+ * @group Stats - Combined recent and historical statistics
+ * @returns {object} 200 - Combined statistics
+ */
+router.get("/combined", statsController.getCombinedStats);
+
+/**
+ * Get user activity statistics
+ * @route GET /stats/user/:userId
+ * @group Stats - User activity statistics
+ * @returns {object} 200 - User activity statistics
+ */
+router.get("/user/:userId", statsController.getUserStats);
 
 export default router;
