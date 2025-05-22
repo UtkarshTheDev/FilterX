@@ -17,9 +17,11 @@
     "analyze": "bun build src/server.ts --analyze",
     "clean": "rm -rf dist",
     "docker:build": "docker build -t filterx:latest .",
-    "prepare-db": "npx tsx scripts/prepare-db.ts",
-    "test-redis": "npx tsx scripts/test-redis.ts",
-    "stats:aggregate": "node scripts/stats-aggregator.js",
+    "prepare-db": "bun run scripts/prepare-db.ts",
+    "test-redis": "bun run scripts/test-redis.ts",
+    "stats:aggregate": "bun run src/workers/statsAggregator.ts",
+    "stats:aggregate:display": "node scripts/stats-aggregator.js",
+    "stats:check-db": "node scripts/check-db-stats.js",
     "stats:diagnose": "node scripts/diagnose-stats.js"
   },
   "devDependencies": {
