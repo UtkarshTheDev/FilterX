@@ -89,15 +89,26 @@ export const updateCacheHitRate = async (
  */
 export const getSummaryStats = async () => {
   try {
-    // Get basic request stats
-    const [totalRequests, blockedRequests, cachedRequests] =
-      await statsGetMulti([
+    // Get basic request stats with error handling
+    let totalRequests: string | null = "0",
+      blockedRequests: string | null = "0",
+      cachedRequests: string | null = "0";
+
+    try {
+      const results = await statsGetMulti([
         KEY_PREFIXES.TOTAL_REQUESTS,
         KEY_PREFIXES.BLOCKED_REQUESTS,
         KEY_PREFIXES.CACHED_REQUESTS,
       ]);
+      totalRequests = results[0];
+      blockedRequests = results[1];
+      cachedRequests = results[2];
+    } catch (error) {
+      console.error("Error fetching basic request stats:", error);
+      // Continue with default values
+    }
 
-    // Parse basic stats
+    // Parse basic stats with safe defaults
     const totalReq = parseInt(totalRequests || "0", 10);
     const blockedReq = parseInt(blockedRequests || "0", 10);
     // Calculate filtered requests (derived value)
@@ -109,9 +120,19 @@ export const getSummaryStats = async () => {
     const cacheHitRate =
       totalReq > 0 ? Math.round((cachedReq / totalReq) * 100) : 0;
 
-    // Get API stats from consolidated hashes
-    const textApiData = (await redisClient.hgetall("api:stats:text")) || {};
-    const imageApiData = (await redisClient.hgetall("api:stats:image")) || {};
+    // Get API stats from consolidated hashes with error handling
+    let textApiData: Record<string, string> = {};
+    let imageApiData: Record<string, string> = {};
+
+    try {
+      if (redisClient && redisClient.status === "ready") {
+        textApiData = (await redisClient.hgetall("api:stats:text")) || {};
+        imageApiData = (await redisClient.hgetall("api:stats:image")) || {};
+      }
+    } catch (error) {
+      console.error("Error fetching API stats from Redis:", error);
+      // Continue with empty objects
+    }
 
     // Parse API stats
     const aiApiCalls = parseInt(textApiData["calls"] || "0", 10);
@@ -122,34 +143,41 @@ export const getSummaryStats = async () => {
     const imageApiErrors = parseInt(imageApiData["errors"] || "0", 10);
     const imageApiTotalTime = parseInt(imageApiData["total_time"] || "0", 10);
 
-    // We're no longer tracking detailed API cache stats
-    // Use default values for API compatibility
-    const aiCacheHits = 0;
-    const aiCacheMisses = 0;
-
-    const imageCacheHits = 0;
-    const imageCacheMisses = 0;
+    // Cache stats are no longer tracked (removed from database schema)
 
     // Get AI and image stats only (removed prescreening, performance, and filter controller metrics)
-    const [
-      aiCalled,
-      aiBlocked,
-      aiAllowed,
-      aiErrors,
-      imageCalled,
-      imageBlocked,
-      imageAllowed,
-      imageErrors,
-    ] = await statsGetMulti([
-      "filter:ai:called",
-      "filter:ai:blocked",
-      "filter:ai:allowed",
-      "filter:ai:errors",
-      "filter:image:called",
-      "filter:image:blocked",
-      "filter:image:allowed",
-      "filter:image:errors",
-    ]);
+    let aiCalled: string | null = "0",
+      aiBlocked: string | null = "0",
+      aiAllowed: string | null = "0",
+      aiErrors: string | null = "0";
+    let imageCalled: string | null = "0",
+      imageBlocked: string | null = "0",
+      imageAllowed: string | null = "0",
+      imageErrors: string | null = "0";
+
+    try {
+      const results = await statsGetMulti([
+        "filter:ai:called",
+        "filter:ai:blocked",
+        "filter:ai:allowed",
+        "filter:ai:errors",
+        "filter:image:called",
+        "filter:image:blocked",
+        "filter:image:allowed",
+        "filter:image:errors",
+      ]);
+      aiCalled = results[0];
+      aiBlocked = results[1];
+      aiAllowed = results[2];
+      aiErrors = results[3];
+      imageCalled = results[4];
+      imageBlocked = results[5];
+      imageAllowed = results[6];
+      imageErrors = results[7];
+    } catch (error) {
+      console.error("Error fetching AI and image filter stats:", error);
+      // Continue with default values
+    }
 
     // Parse AI and image stats
     const aiCalledVal = parseInt(aiCalled || "0", 10);
@@ -202,12 +230,7 @@ export const getSummaryStats = async () => {
           blockRate: aiBlockRate,
           usagePercent:
             totalReq > 0 ? Math.round((aiCalledVal / totalReq) * 100) : 0,
-          // Add AI API performance metrics
-          cache: {
-            hits: aiCacheHits,
-            misses: aiCacheMisses,
-            hitRate: 0, // No longer tracking detailed API cache stats
-          },
+          // AI API performance metrics (cache tracking removed)
           api: {
             calls: aiApiCalls,
             errors: aiApiErrors,
@@ -221,12 +244,7 @@ export const getSummaryStats = async () => {
           blocked: imageBlockedVal,
           allowed: imageAllowedVal,
           errors: imageErrorsVal,
-          // Add image API performance metrics
-          cache: {
-            hits: imageCacheHits,
-            misses: imageCacheMisses,
-            hitRate: 0, // No longer tracking detailed API cache stats
-          },
+          // Image API performance metrics (cache tracking removed)
           api: {
             calls: imageApiCalls,
             errors: imageApiErrors,
@@ -255,12 +273,34 @@ export const getSummaryStats = async () => {
  */
 const getLatencyStats = async () => {
   try {
-    // Get sampled latency values
-    const latencyValues = await redisClient.lrange(
-      `${KEY_PREFIXES.LATENCY}all`,
-      0,
-      -1
-    );
+    // Check if Redis is available
+    if (!redisClient || redisClient.status !== "ready") {
+      console.warn("Redis not available for latency stats");
+      return {
+        average: 0,
+        p50: 0,
+        p95: 0,
+        p99: 0,
+      };
+    }
+
+    // Get sampled latency values with error handling
+    let latencyValues = [];
+    try {
+      latencyValues = await redisClient.lrange(
+        `${KEY_PREFIXES.LATENCY}all`,
+        0,
+        -1
+      );
+    } catch (error) {
+      console.error("Error fetching latency values from Redis:", error);
+      return {
+        average: 0,
+        p50: 0,
+        p95: 0,
+        p99: 0,
+      };
+    }
 
     if (latencyValues.length === 0) {
       return {
@@ -271,10 +311,20 @@ const getLatencyStats = async () => {
       };
     }
 
-    // Convert to numbers and sort
+    // Convert to numbers and sort with error handling
     const values = latencyValues
       .map((v) => parseInt(v, 10))
+      .filter((v) => !isNaN(v)) // Filter out invalid values
       .sort((a, b) => a - b);
+
+    if (values.length === 0) {
+      return {
+        average: 0,
+        p50: 0,
+        p95: 0,
+        p99: 0,
+      };
+    }
 
     // Calculate stats - these are now based on sampled data
     // but statistically valid due to random sampling
@@ -305,29 +355,53 @@ const getLatencyStats = async () => {
  */
 const getFlagStats = async () => {
   try {
-    // Get all flag keys
-    const flagKeys = await redisClient.keys(`${KEY_PREFIXES.FLAG_COUNTS}*`);
+    // Check if Redis is available
+    if (!redisClient || redisClient.status !== "ready") {
+      console.warn("Redis not available for flag stats");
+      return {};
+    }
+
+    // Get all flag keys with error handling
+    let flagKeys = [];
+    try {
+      flagKeys = await redisClient.keys(`${KEY_PREFIXES.FLAG_COUNTS}*`);
+    } catch (error) {
+      console.error("Error fetching flag keys from Redis:", error);
+      return {};
+    }
 
     if (flagKeys.length === 0) {
       return {};
     }
 
-    // Get flag counts
-    const pipeline = statsPipeline();
-    flagKeys.forEach((key) => pipeline.get(key));
+    // Get flag counts with error handling
+    let results = null;
+    try {
+      const pipeline = statsPipeline();
+      flagKeys.forEach((key) => pipeline.get(key));
+      results = await pipeline.exec();
+    } catch (error) {
+      console.error("Error executing pipeline for flag stats:", error);
+      return {};
+    }
 
-    const results = await pipeline.exec();
     if (!results) {
       return {};
     }
 
-    // Format results
+    // Format results with error handling
     const flagStats: Record<string, number> = {};
 
     flagKeys.forEach((key, index) => {
-      const flagName = key.replace(KEY_PREFIXES.FLAG_COUNTS, "");
-      const count = parseInt((results[index][1] as string) || "0", 10);
-      flagStats[flagName] = count;
+      try {
+        const flagName = key.replace(KEY_PREFIXES.FLAG_COUNTS, "");
+        const count = parseInt((results[index][1] as string) || "0", 10);
+        if (!isNaN(count)) {
+          flagStats[flagName] = count;
+        }
+      } catch (error) {
+        console.error(`Error processing flag stat for key ${key}:`, error);
+      }
     });
 
     return flagStats;
@@ -355,25 +429,18 @@ export const trackApiResponseTime = async (
     const pipeline = statsPipeline();
     const hashKey = `api:stats:${apiType}`;
 
-    // Use a single hash for all metrics related to this API type
-    if (isCacheHit) {
-      // Update cache hit stats in the consolidated cache tracking
-      updateCacheHitRate(true, `api:${apiType}`);
-    } else {
-      // Increment call counts in the hash
-      pipeline.hincrby(hashKey, "calls", 1);
+    // Track all API calls regardless of cache status
+    pipeline.hincrby(hashKey, "calls", 1);
 
-      // Track errors if applicable
-      if (isError) {
-        pipeline.hincrby(hashKey, "errors", 1);
-      }
-
-      // Track total time for calculating averages
-      pipeline.hincrby(hashKey, "total_time", responseTimeMs);
-
-      // Track cache miss in the consolidated tracking
-      updateCacheHitRate(false, `api:${apiType}`);
+    // Track errors if applicable
+    if (isError) {
+      pipeline.hincrby(hashKey, "errors", 1);
     }
+
+    // Track total time for calculating averages
+    pipeline.hincrby(hashKey, "total_time", responseTimeMs);
+
+    // Cache hit rate tracking is no longer used (removed for optimization)
 
     // Execute pipeline
     await pipeline.exec();
@@ -423,18 +490,7 @@ export const getDetailedPerformanceStats = async () => {
               100
           ),
         },
-        cacheHitRate: {
-          text: textApiData.cacheHitRate,
-          image: imageApiData.cacheHitRate,
-          overall: Math.round(
-            ((textApiData.cacheHits + imageApiData.cacheHits) /
-              Math.max(
-                1,
-                textApiData.totalRequests + imageApiData.totalRequests
-              )) *
-              100
-          ),
-        },
+        // Cache hit rate removed - no longer tracked
       },
     };
   } catch (error) {
@@ -458,37 +514,34 @@ const getApiPerformanceData = async (
   startTime: number,
   endTime: number
 ) => {
-  // Get API stats from consolidated hash
+  // Get API stats from consolidated hash with error handling
   const hashKey = `api:stats:${apiType}`;
-  const apiData = (await redisClient.hgetall(hashKey)) || {};
+  let apiData: Record<string, string> = {};
 
-  // Parse API stats
+  try {
+    if (redisClient && redisClient.status === "ready") {
+      apiData = (await redisClient.hgetall(hashKey)) || {};
+    }
+  } catch (error) {
+    console.error(`Error fetching API performance data for ${apiType}:`, error);
+    // Continue with empty object
+  }
+
+  // Parse API stats with safe defaults
   const calls = parseInt(apiData["calls"] || "0", 10);
   const errors = parseInt(apiData["errors"] || "0", 10);
   const totalTime = parseInt(apiData["total_time"] || "0", 10);
 
-  // We're no longer tracking detailed cache stats
-  const hits = 0;
-  const misses = 0;
-  const total = 1; // Prevent division by zero
+  // Calculate metrics with safe division
+  const avgResponseTime = calls > 0 ? Math.round(totalTime / calls) : 0;
+  const errorRate = calls > 0 ? Math.round((errors / calls) * 100) : 0;
 
-  // Calculate metrics
-  const totalCalls = Math.max(1, calls); // Prevent division by zero
-  const totalRequests = total;
-  const avgResponseTime = Math.round(totalTime / totalCalls);
-  const errorRate = Math.round((errors / totalCalls) * 100);
-  const cacheHitRate = total > 0 ? Math.round((hits / total) * 100) : 0;
-
-  // Return empty array for timeseriesData since we no longer store it
+  // Return simplified data (cache fields removed)
   return {
-    totalCalls,
+    totalCalls: calls,
     errors,
     avgResponseTime,
     errorRate,
-    cacheHits: hits,
-    cacheMisses: misses,
-    totalRequests,
-    cacheHitRate,
     timeseriesData: [], // Empty array since time series data is no longer stored
   };
 };
@@ -540,8 +593,8 @@ export const getAIResponseTimeData = async (
   const imageApiData = await getApiPerformanceData("image", startTime, endTime);
 
   // Empty response times arrays (since time series data is no longer stored)
-  const textResponseTimes = [];
-  const imageResponseTimes = [];
+  const textResponseTimes: number[] = [];
+  const imageResponseTimes: number[] = [];
 
   return {
     timeRange,
@@ -552,14 +605,14 @@ export const getAIResponseTimeData = async (
       avgResponseTime: textApiData.avgResponseTime,
       p95ResponseTime: 0, // No data for p95 calculation
       errorRate: textApiData.errorRate,
-      cacheHitRate: textApiData.cacheHitRate,
+      // Cache hit rate removed - no longer tracked
     },
     imageApi: {
       responseTimes: imageResponseTimes,
       avgResponseTime: imageApiData.avgResponseTime,
       p95ResponseTime: 0, // No data for p95 calculation
       errorRate: imageApiData.errorRate,
-      cacheHitRate: imageApiData.cacheHitRate,
+      // Cache hit rate removed - no longer tracked
     },
   };
 };

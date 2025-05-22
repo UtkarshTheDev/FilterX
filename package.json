@@ -8,7 +8,6 @@
     "dev": "bun run --watch src/server.ts",
     "build": "bun build src/server.ts --target node --outdir dist",
     "prod": "NODE_ENV=production bun run dist/server.js",
-    "migrate": "bun run scripts/migrate.ts",
     "test": "bun test",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
@@ -18,8 +17,10 @@
     "analyze": "bun build src/server.ts --analyze",
     "clean": "rm -rf dist",
     "docker:build": "docker build -t filterx:latest .",
-    "prepare-db": "bun run scripts/prepare-db.ts",
-    "test-redis": "bun run scripts/test-redis.ts"
+    "prepare-db": "npx tsx scripts/prepare-db.ts",
+    "test-redis": "npx tsx scripts/test-redis.ts",
+    "stats:aggregate": "node scripts/stats-aggregator.js",
+    "stats:diagnose": "node scripts/diagnose-stats.js"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",

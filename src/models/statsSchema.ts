@@ -13,24 +13,24 @@ import {
  * Daily request statistics table
  * Stores aggregated request metrics per day
  */
-export const requestStatsDaily = pgTable(
-  "request_stats_daily",
-  {
-    date: date("date").primaryKey(),
-    totalRequests: integer("total_requests").notNull().default(0),
-    filteredRequests: integer("filtered_requests").notNull().default(0),
-    blockedRequests: integer("blocked_requests").notNull().default(0),
-    cachedRequests: integer("cached_requests").notNull().default(0),
-    avgResponseTimeMs: integer("avg_response_time_ms").notNull().default(0),
-    p95ResponseTimeMs: integer("p95_response_time_ms").notNull().default(0),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  }
-);
+export const requestStatsDaily = pgTable("request_stats_daily", {
+  date: date("date").primaryKey(),
+  totalRequests: integer("total_requests").notNull().default(0),
+  filteredRequests: integer("filtered_requests").notNull().default(0),
+  blockedRequests: integer("blocked_requests").notNull().default(0),
+  cachedRequests: integer("cached_requests").notNull().default(0),
+  avgResponseTimeMs: integer("avg_response_time_ms").notNull().default(0),
+  p95ResponseTimeMs: integer("p95_response_time_ms").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
 
 /**
  * Hourly API performance metrics table
  * Stores detailed API performance data per hour
+ *
+ * Note: cache_hits and cache_misses fields removed as they depended on
+ * removed Redis keys (filter:cache:hits, filter:cache:misses)
  */
 export const apiPerformanceHourly = pgTable(
   "api_performance_hourly",
@@ -40,8 +40,6 @@ export const apiPerformanceHourly = pgTable(
     apiType: varchar("api_type", { length: 20 }).notNull(),
     totalCalls: integer("total_calls").notNull().default(0),
     errorCalls: integer("error_calls").notNull().default(0),
-    cacheHits: integer("cache_hits").notNull().default(0),
-    cacheMisses: integer("cache_misses").notNull().default(0),
     avgResponseTimeMs: integer("avg_response_time_ms").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },

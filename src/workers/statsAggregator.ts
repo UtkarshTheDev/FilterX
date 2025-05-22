@@ -3,6 +3,7 @@ import {
   aggregateAndStoreRequestStats,
   aggregateAndStoreApiPerformance,
   aggregateAndStoreContentFlags,
+  aggregateAndStoreUserActivity,
 } from "../services/statsDbService";
 import logger from "../utils/logger";
 import { closeRedisConnection, redisClient } from "../utils/redis";
@@ -44,12 +45,14 @@ export async function runStatsAggregation(
     const requestStatsResult = await aggregateAndStoreRequestStats();
     const apiPerformanceResult = await aggregateAndStoreApiPerformance();
     const contentFlagsResult = await aggregateAndStoreContentFlags();
+    const userActivityResult = await aggregateAndStoreUserActivity();
 
     // If all tasks succeeded and clearRedisKeys is true, clear the processed Redis keys
     if (
       requestStatsResult &&
       apiPerformanceResult &&
       contentFlagsResult &&
+      userActivityResult &&
       clearRedisKeys
     ) {
       await clearProcessedRedisKeys();
@@ -107,6 +110,13 @@ async function clearProcessedRedisKeys(): Promise<void> {
     await resetRedisCounter("filter:image:blocked");
     await resetRedisCounter("filter:image:allowed");
     await resetRedisCounter("filter:image:errors");
+
+    // Reset user activity counters
+    const userKeys = await redisClient.keys("stats:requests:user:*");
+    for (const userKey of userKeys) {
+      await resetRedisCounter(userKey);
+    }
+    logger.debug(`Reset ${userKeys.length} user activity counters`);
 
     // Delete unused keys that we want to completely remove
     // These keys are no longer needed and should be removed entirely
