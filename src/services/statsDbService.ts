@@ -10,8 +10,37 @@ import {
   type NewContentFlagsDaily,
   type NewUserActivityDaily,
 } from "../models/statsSchema";
-import { redisClient, statsGetMulti } from "../utils/redis";
+import {
+  redisClient,
+  statsGetMulti,
+  statsHGetAll,
+  statsLRange,
+} from "../utils/redis";
 import logger from "../utils/logger";
+
+/**
+ * Wait for Redis to be ready before proceeding with aggregation
+ * This fixes the race condition where aggregation starts before Redis is connected
+ */
+async function waitForRedisReady(maxWaitMs: number = 10000): Promise<void> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    if (redisClient && redisClient.status === "ready") {
+      logger.info("Redis is ready for aggregation");
+      return;
+    }
+
+    logger.debug(
+      `Waiting for Redis to be ready... (status: ${
+        redisClient?.status || "null"
+      })`
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100)); // Wait 100ms
+  }
+
+  logger.warn(`Redis not ready after ${maxWaitMs}ms, proceeding anyway`);
+}
 
 /**
  * Aggregates request statistics from Redis and stores them in the database
@@ -21,6 +50,9 @@ export async function aggregateAndStoreRequestStats(): Promise<boolean> {
   try {
     logger.info("Starting request stats aggregation");
     const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format
+
+    // CRITICAL FIX: Wait for Redis to be ready before reading stats
+    await waitForRedisReady();
 
     // Get current stats from Redis (using optimized key set)
     const [totalRequests, blockedRequests, cachedRequests] =
@@ -91,6 +123,9 @@ export async function aggregateAndStoreApiPerformance(): Promise<boolean> {
   try {
     logger.info("Starting API performance aggregation");
 
+    // CRITICAL FIX: Wait for Redis to be ready before reading stats
+    await waitForRedisReady();
+
     // Create timestamp for current hour (zeroing minutes, seconds, ms)
     const now = new Date();
     const hourTimestamp = new Date(
@@ -108,14 +143,8 @@ export async function aggregateAndStoreApiPerformance(): Promise<boolean> {
     let imageApiData: Record<string, string> = {};
 
     try {
-      if (redisClient && redisClient.status === "ready") {
-        textApiData = (await redisClient.hgetall("api:stats:text")) || {};
-        imageApiData = (await redisClient.hgetall("api:stats:image")) || {};
-      } else {
-        logger.warn(
-          "Redis not available for API stats aggregation, using defaults"
-        );
-      }
+      textApiData = (await statsHGetAll("api:stats:text")) || {};
+      imageApiData = (await statsHGetAll("api:stats:image")) || {};
     } catch (error) {
       logger.error("Error fetching API stats from Redis:", error);
       // Continue with empty objects - will use default values
@@ -212,6 +241,9 @@ export async function aggregateAndStoreContentFlags(): Promise<boolean> {
   try {
     logger.info("Starting content flags aggregation");
     const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format
+
+    // CRITICAL FIX: Wait for Redis to be ready before reading stats
+    await waitForRedisReady();
 
     // Check if Redis is available
     if (!redisClient || redisClient.status !== "ready") {
@@ -313,6 +345,9 @@ export async function aggregateAndStoreUserActivity(): Promise<boolean> {
   try {
     logger.info("Starting user activity aggregation");
     const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format
+
+    // CRITICAL FIX: Wait for Redis to be ready before reading stats
+    await waitForRedisReady();
 
     // Check if Redis is available
     if (!redisClient || redisClient.status !== "ready") {
@@ -424,10 +459,13 @@ export async function aggregateAndStoreUserActivity(): Promise<boolean> {
  */
 async function getLatencyStatsFromRedis() {
   try {
+    // CRITICAL FIX: Ensure Redis is ready before reading latency data
+    await waitForRedisReady();
+
     // Get all latency values - with error handling for Redis connection issues
     let latencyValues: string[] = [];
     try {
-      latencyValues = await redisClient.lrange("stats:latency:all", 0, -1);
+      latencyValues = await statsLRange("stats:latency:all", 0, -1);
     } catch (redisError) {
       logger.error("Error retrieving latency values from Redis:", redisError);
       // Continue with empty array if Redis fails

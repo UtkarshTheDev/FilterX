@@ -24,6 +24,30 @@ import { pool } from "../db";
 let isAggregating = false;
 
 /**
+ * Wait for Redis to be ready before proceeding with aggregation
+ * This fixes the race condition where aggregation starts before Redis is connected
+ */
+async function waitForRedisReady(maxWaitMs: number = 10000): Promise<void> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    if (redisClient && redisClient.status === "ready") {
+      logger.info("Redis is ready for aggregation");
+      return;
+    }
+
+    logger.debug(
+      `Waiting for Redis to be ready... (status: ${
+        redisClient?.status || "null"
+      })`
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100)); // Wait 100ms
+  }
+
+  logger.warn(`Redis not ready after ${maxWaitMs}ms, proceeding anyway`);
+}
+
+/**
  * Main aggregation function that runs all aggregation tasks
  */
 export async function runStatsAggregation(
@@ -39,6 +63,11 @@ export async function runStatsAggregation(
 
   try {
     logger.info("Starting stats aggregation process");
+
+    // CRITICAL FIX: Wait for Redis to be ready before starting aggregation
+    logger.info("Waiting for Redis to be ready...");
+    await waitForRedisReady();
+
     const startTime = Date.now();
 
     // Run all aggregation tasks

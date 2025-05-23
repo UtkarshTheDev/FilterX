@@ -1,8 +1,10 @@
 import {
-  redisClient,
   statsPipeline,
   statsGet,
   statsGetMulti,
+  statsHGetAll,
+  statsLRange,
+  statsIncrement,
 } from "../utils/redis";
 import { config } from "../config";
 
@@ -30,42 +32,111 @@ export const trackFilterRequest = async (
   latencyMs: number,
   isCached: boolean
 ) => {
-  const pipeline = statsPipeline();
-
-  // Increment total requests - this is our primary counter
-  pipeline.incr(KEY_PREFIXES.TOTAL_REQUESTS);
-
-  // Increment user requests
-  const userKey = `${KEY_PREFIXES.USER_REQUESTS}${userId}`;
-  pipeline.incr(userKey);
-
-  // Only track blocked requests - filtered can be derived (total - blocked)
-  if (isBlocked) {
-    pipeline.incr(KEY_PREFIXES.BLOCKED_REQUESTS);
-  }
-
-  // Increment cached counts
-  if (isCached) {
-    pipeline.incr(KEY_PREFIXES.CACHED_REQUESTS);
-  }
-
-  // Increment flags counts
-  flags.forEach((flag) => {
-    const flagKey = `${KEY_PREFIXES.FLAG_COUNTS}${flag}`;
-    pipeline.incr(flagKey);
-  });
-
-  // Track latency for all requests but keep a smaller window
-  // This ensures we have accurate recent data for averages
-  const latencyKey = `${KEY_PREFIXES.LATENCY}all`;
-  pipeline.lpush(latencyKey, latencyMs.toString());
-  pipeline.ltrim(latencyKey, 0, 499); // Keep last 500 entries for accurate recent stats
-
-  // Execute all commands as a transaction
   try {
-    await pipeline.exec();
+    console.log(
+      `[Stats] Tracking filter request for user: ${userId}, blocked: ${isBlocked}, cached: ${isCached}, flags: [${flags.join(
+        ", "
+      )}]`
+    );
+
+    const pipeline = statsPipeline();
+
+    // Increment total requests - this is our primary counter
+    pipeline.incr(KEY_PREFIXES.TOTAL_REQUESTS);
+    console.log(`[Stats] Queued increment for ${KEY_PREFIXES.TOTAL_REQUESTS}`);
+
+    // Increment user requests
+    const userKey = `${KEY_PREFIXES.USER_REQUESTS}${userId}`;
+    pipeline.incr(userKey);
+    console.log(`[Stats] Queued increment for ${userKey}`);
+
+    // Only track blocked requests - filtered can be derived (total - blocked)
+    if (isBlocked) {
+      pipeline.incr(KEY_PREFIXES.BLOCKED_REQUESTS);
+      console.log(
+        `[Stats] Queued increment for ${KEY_PREFIXES.BLOCKED_REQUESTS}`
+      );
+    }
+
+    // Increment cached counts
+    if (isCached) {
+      pipeline.incr(KEY_PREFIXES.CACHED_REQUESTS);
+      console.log(
+        `[Stats] Queued increment for ${KEY_PREFIXES.CACHED_REQUESTS}`
+      );
+    }
+
+    // Increment flags counts
+    flags.forEach((flag) => {
+      const flagKey = `${KEY_PREFIXES.FLAG_COUNTS}${flag}`;
+      pipeline.incr(flagKey);
+      console.log(`[Stats] Queued increment for flag: ${flagKey}`);
+    });
+
+    // Track latency for all requests but keep a smaller window
+    // This ensures we have accurate recent data for averages
+    const latencyKey = `${KEY_PREFIXES.LATENCY}all`;
+    pipeline.lpush(latencyKey, latencyMs.toString());
+    pipeline.ltrim(latencyKey, 0, 499); // Keep last 500 entries for accurate recent stats
+    console.log(
+      `[Stats] Queued latency tracking for ${latencyKey}: ${latencyMs}ms`
+    );
+
+    // Execute all commands as a transaction
+    console.log(
+      `[Stats] Executing pipeline with ${flags.length + 4} operations`
+    );
+    const results = await pipeline.exec();
+
+    if (results) {
+      console.log(
+        `[Stats] Pipeline executed successfully with ${results.length} results`
+      );
+
+      // Log any errors in the pipeline results
+      results.forEach((result, index) => {
+        if (result && result[0]) {
+          console.error(
+            `[Stats] Pipeline operation ${index} failed:`,
+            result[0]
+          );
+        }
+      });
+    } else {
+      console.warn(
+        `[Stats] Pipeline execution returned null/undefined results`
+      );
+    }
+
+    // Verify that the main counter was actually incremented
+    const totalAfter = await statsGet(KEY_PREFIXES.TOTAL_REQUESTS);
+    console.log(`[Stats] Total requests after increment: ${totalAfter}`);
   } catch (error) {
     console.error("[Stats] Error tracking filter request stats:", error);
+
+    // Fallback: try to increment the main counter directly if pipeline failed
+    try {
+      console.log("[Stats] Attempting fallback direct increment");
+      await statsIncrement(KEY_PREFIXES.TOTAL_REQUESTS);
+      await statsIncrement(`${KEY_PREFIXES.USER_REQUESTS}${userId}`);
+
+      if (isBlocked) {
+        await statsIncrement(KEY_PREFIXES.BLOCKED_REQUESTS);
+      }
+
+      if (isCached) {
+        await statsIncrement(KEY_PREFIXES.CACHED_REQUESTS);
+      }
+
+      // Track flags individually
+      for (const flag of flags) {
+        await statsIncrement(`${KEY_PREFIXES.FLAG_COUNTS}${flag}`);
+      }
+
+      console.log("[Stats] Fallback direct increment completed");
+    } catch (fallbackError) {
+      console.error("[Stats] Fallback increment also failed:", fallbackError);
+    }
   }
 };
 
@@ -428,30 +499,81 @@ export const trackApiResponseTime = async (
   isCacheHit: boolean = false
 ): Promise<void> => {
   try {
+    console.log(
+      `[Stats] Tracking API response time for ${apiType}: ${responseTimeMs}ms, error: ${isError}, cached: ${isCacheHit}`
+    );
+
     // Store data in Redis using a hash to reduce key count
     const pipeline = statsPipeline();
     const hashKey = `api:stats:${apiType}`;
 
     // Track all API calls regardless of cache status
     pipeline.hincrby(hashKey, "calls", 1);
+    console.log(`[Stats] Queued hincrby for ${hashKey}:calls`);
 
     // Track errors if applicable
     if (isError) {
       pipeline.hincrby(hashKey, "errors", 1);
+      console.log(`[Stats] Queued hincrby for ${hashKey}:errors`);
     }
 
     // Track total time for calculating averages
     pipeline.hincrby(hashKey, "total_time", responseTimeMs);
+    console.log(
+      `[Stats] Queued hincrby for ${hashKey}:total_time by ${responseTimeMs}`
+    );
 
     // Cache hit rate tracking is no longer used (removed for optimization)
 
     // Execute pipeline
-    await pipeline.exec();
+    console.log(`[Stats] Executing API stats pipeline for ${apiType}`);
+    const results = await pipeline.exec();
+
+    if (results) {
+      console.log(
+        `[Stats] API stats pipeline executed successfully with ${results.length} results`
+      );
+
+      // Log any errors in the pipeline results
+      results.forEach((result, index) => {
+        if (result && result[0]) {
+          console.error(
+            `[Stats] API stats pipeline operation ${index} failed:`,
+            result[0]
+          );
+        }
+      });
+    } else {
+      console.warn(
+        `[Stats] API stats pipeline execution returned null/undefined results`
+      );
+    }
   } catch (error) {
     console.error(
       `[Stats] Error tracking API response time for ${apiType}:`,
       error
     );
+
+    // Fallback: try to track directly if pipeline failed
+    try {
+      console.log(
+        `[Stats] Attempting fallback direct tracking for ${apiType} API`
+      );
+      const hashKey = `api:stats:${apiType}`;
+
+      await statsIncrement(`${hashKey}:calls`);
+      if (isError) {
+        await statsIncrement(`${hashKey}:errors`);
+      }
+      await statsIncrement(`${hashKey}:total_time`, responseTimeMs);
+
+      console.log(`[Stats] Fallback API tracking completed for ${apiType}`);
+    } catch (fallbackError) {
+      console.error(
+        `[Stats] Fallback API tracking also failed for ${apiType}:`,
+        fallbackError
+      );
+    }
   }
 };
 
@@ -525,9 +647,7 @@ const getApiPerformanceData = async (
   let apiData: Record<string, string> = {};
 
   try {
-    if (redisClient && redisClient.status === "ready") {
-      apiData = (await redisClient.hgetall(hashKey)) || {};
-    }
+    apiData = (await statsHGetAll(hashKey)) || {};
   } catch (error) {
     console.error(`Error fetching API performance data for ${apiType}:`, error);
     // Continue with empty object

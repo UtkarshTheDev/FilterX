@@ -512,8 +512,8 @@ export const filterContent = async (
       );
     }
 
-    // Track image API performance if images were processed
-    if (request.images && request.images.length > 0) {
+    // Track image API performance if image was processed
+    if (request.image) {
       await trackApiResponseTime("image", processingTime, false, isCached);
       console.log(
         `[Filter] Image API stats tracked: ${processingTime}ms, cached: ${isCached}`

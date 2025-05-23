@@ -5,14 +5,14 @@ import { config } from "../config";
 import logger from "../utils/logger";
 
 // Singleton database pool instance
-let poolInstance: Pool | null = null;
+let poolInstance: InstanceType<typeof Pool> | null = null;
 let dbInstance: any | null = null;
 let isWarmedUp = false;
 
 /**
  * Get a singleton database pool instance with optimized connection settings
  */
-export const getPool = (): Pool => {
+export const getPool = (): InstanceType<typeof Pool> => {
   if (poolInstance) {
     return poolInstance;
   }
@@ -46,7 +46,7 @@ export const getPool = (): Pool => {
     logger.debug("New database connection established");
   });
 
-  poolInstance.on("error", (err) => {
+  poolInstance.on("error", (err: any) => {
     logger.error("Unexpected database pool error", err);
   });
 
