@@ -36,7 +36,8 @@ export const trackFilterRequest = async (
   pipeline.incr(KEY_PREFIXES.TOTAL_REQUESTS);
 
   // Increment user requests
-  pipeline.incr(`${KEY_PREFIXES.USER_REQUESTS}${userId}`);
+  const userKey = `${KEY_PREFIXES.USER_REQUESTS}${userId}`;
+  pipeline.incr(userKey);
 
   // Only track blocked requests - filtered can be derived (total - blocked)
   if (isBlocked) {
@@ -50,19 +51,21 @@ export const trackFilterRequest = async (
 
   // Increment flags counts
   flags.forEach((flag) => {
-    pipeline.incr(`${KEY_PREFIXES.FLAG_COUNTS}${flag}`);
+    const flagKey = `${KEY_PREFIXES.FLAG_COUNTS}${flag}`;
+    pipeline.incr(flagKey);
   });
 
   // Track latency for all requests but keep a smaller window
   // This ensures we have accurate recent data for averages
-  pipeline.lpush(`${KEY_PREFIXES.LATENCY}all`, latencyMs.toString());
-  pipeline.ltrim(`${KEY_PREFIXES.LATENCY}all`, 0, 499); // Keep last 500 entries for accurate recent stats
+  const latencyKey = `${KEY_PREFIXES.LATENCY}all`;
+  pipeline.lpush(latencyKey, latencyMs.toString());
+  pipeline.ltrim(latencyKey, 0, 499); // Keep last 500 entries for accurate recent stats
 
   // Execute all commands as a transaction
   try {
     await pipeline.exec();
   } catch (error) {
-    console.error("Error tracking stats:", error);
+    console.error("[Stats] Error tracking filter request stats:", error);
   }
 };
 
@@ -445,7 +448,10 @@ export const trackApiResponseTime = async (
     // Execute pipeline
     await pipeline.exec();
   } catch (error) {
-    console.error(`Error tracking API response time:`, error);
+    console.error(
+      `[Stats] Error tracking API response time for ${apiType}:`,
+      error
+    );
   }
 };
 

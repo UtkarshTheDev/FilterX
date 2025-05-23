@@ -10,7 +10,7 @@ import {
   getCachedResponse,
   setCachedResponse,
 } from "../utils/cache";
-import { trackFilterRequest } from "./statsService";
+import { trackFilterRequest, trackApiResponseTime } from "./statsService";
 import { statsIncrement } from "../utils/redis";
 
 // Default configuration
@@ -130,22 +130,7 @@ export const filterContent = async (
         );
       });
 
-      // We're no longer tracking cache hits separately
-      // Just track the request with isCached=true
-      setImmediate(async () => {
-        try {
-          // Track cached request in background
-          await trackFilterRequest(
-            userId,
-            response.blocked,
-            response.flags,
-            Date.now() - startTime,
-            true
-          );
-        } catch (error) {
-          console.error("[Filter] Error in background processing:", error);
-        }
-      });
+      // Cache hit - stats will be tracked at the end of the function
 
       return response;
     }
@@ -509,17 +494,54 @@ export const filterContent = async (
     };
   }
 
-  // Run ALL non-essential operations in the background after sending response
+  // Calculate processing time
+  const processingTime = Date.now() - startTime;
+  console.log(
+    `[Filter] Content filtering complete in ${processingTime}ms - ${
+      response.blocked ? "BLOCKED" : "ALLOWED"
+    }`
+  );
+
+  // Track API performance for ALL filter requests (regardless of AI usage)
+  try {
+    // Track text API performance if text was processed
+    if (request.text) {
+      await trackApiResponseTime("text", processingTime, false, isCached);
+      console.log(
+        `[Filter] Text API stats tracked: ${processingTime}ms, cached: ${isCached}`
+      );
+    }
+
+    // Track image API performance if images were processed
+    if (request.images && request.images.length > 0) {
+      await trackApiResponseTime("image", processingTime, false, isCached);
+      console.log(
+        `[Filter] Image API stats tracked: ${processingTime}ms, cached: ${isCached}`
+      );
+    }
+  } catch (error) {
+    console.error("[Filter] Error tracking API performance stats:", error);
+  }
+
+  // Track request IMMEDIATELY (not in background) to ensure stats are recorded
+  try {
+    await trackFilterRequest(
+      userId,
+      response.blocked,
+      response.flags,
+      processingTime,
+      isCached
+    );
+    console.log(
+      `[Filter] Stats tracked successfully for user ${userId}, cached: ${isCached}`
+    );
+  } catch (error) {
+    console.error("[Filter] Error tracking request stats:", error);
+  }
+
+  // Run non-essential operations in the background after sending response
   setImmediate(async () => {
     try {
-      // Calculate processing time
-      const processingTime = Date.now() - startTime;
-      console.log(
-        `[Filter] Content filtering complete in ${processingTime}ms - ${
-          response.blocked ? "BLOCKED" : "ALLOWED"
-        }`
-      );
-
       // Cache the result if not already cached
       if (!isCached) {
         await setCachedResponse(cacheKey, response);
@@ -530,18 +552,6 @@ export const filterContent = async (
           )}...`
         );
       }
-
-      // Track request
-      await trackFilterRequest(
-        userId,
-        response.blocked,
-        response.flags,
-        processingTime,
-        false
-      );
-
-      // We're no longer tracking detailed performance metrics
-      // The latency is already tracked in trackFilterRequest
 
       console.log(`[Filter] Background processing complete`);
     } catch (error) {

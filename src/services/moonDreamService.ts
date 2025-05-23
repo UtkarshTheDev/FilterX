@@ -90,16 +90,26 @@ export const analyzeImageContent = async (
     const apiCallDuration = Date.now() - apiCallStartTime;
     console.log(`[Image Analysis] API call completed in ${apiCallDuration}ms`);
 
-    // Track API call performance for monitoring - in background
+    // Track API call performance IMMEDIATELY (not in background) to ensure stats are recorded
+    try {
+      await trackApiResponseTime("image", apiCallDuration, false, false);
+      console.log(
+        `[Image Analysis] API stats tracked successfully: ${apiCallDuration}ms`
+      );
+    } catch (error) {
+      console.error("[Image Analysis] Error tracking API performance:", error);
+    }
+
+    // Track additional stats in background (non-essential)
     setImmediate(async () => {
       try {
         await statsIncrement("image:api:total_time", apiCallDuration);
         await statsIncrement("image:api:call_count");
-
-        // Track API response time for monitoring
-        await trackApiResponseTime("image", apiCallDuration, false, false);
       } catch (error) {
-        console.error("[Image Analysis] Error tracking performance:", error);
+        console.error(
+          "[Image Analysis] Error tracking additional stats:",
+          error
+        );
       }
     });
 
@@ -130,16 +140,27 @@ export const analyzeImageContent = async (
   } catch (error) {
     console.error("Error calling MoonDream API:", error);
 
-    // Track API errors for monitoring - in background
+    // Track API errors IMMEDIATELY (not in background) to ensure stats are recorded
+    try {
+      const errorDuration = 0; // We don't know the exact duration
+      await trackApiResponseTime("image", errorDuration, true, false);
+      console.log(`[Image Analysis] API error stats tracked successfully`);
+    } catch (statsError) {
+      console.error(
+        "[Image Analysis] Error tracking API error stats:",
+        statsError
+      );
+    }
+
+    // Track additional error stats in background (non-essential)
     setImmediate(async () => {
       try {
         await statsIncrement("image:api:errors");
-
-        // Track error response time
-        const errorDuration = 0; // We don't know the exact duration
-        await trackApiResponseTime("image", errorDuration, true, false);
       } catch (error) {
-        console.error("[Image Analysis] Error tracking API error:", error);
+        console.error(
+          "[Image Analysis] Error tracking additional error stats:",
+          error
+        );
       }
     });
 

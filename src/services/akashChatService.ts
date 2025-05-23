@@ -738,16 +738,23 @@ export const analyzeTextContent = async (
     const apiCallDuration = Date.now() - apiCallStartTime;
     console.log(`[AI Analysis] API call completed in ${apiCallDuration}ms`);
 
-    // Track API call performance for monitoring - in background
+    // Track API call performance IMMEDIATELY (not in background) to ensure stats are recorded
+    try {
+      await trackApiResponseTime("text", apiCallDuration, false, false);
+      console.log(
+        `[AI Analysis] API stats tracked successfully: ${apiCallDuration}ms`
+      );
+    } catch (error) {
+      console.error("[AI Analysis] Error tracking API performance:", error);
+    }
+
+    // Track additional stats in background (non-essential)
     setImmediate(async () => {
       try {
         await statsIncrement("ai:api:total_time", apiCallDuration);
         await statsIncrement("ai:api:call_count");
-
-        // Track API response time for monitoring
-        await trackApiResponseTime("text", apiCallDuration, false, false);
       } catch (error) {
-        console.error("[AI Analysis] Error tracking API performance:", error);
+        console.error("[AI Analysis] Error tracking additional stats:", error);
       }
     });
 
@@ -795,16 +802,27 @@ export const analyzeTextContent = async (
   } catch (error) {
     console.error("Error calling Akash Chat API:", error);
 
-    // Track API errors for monitoring - in background
+    // Track API errors IMMEDIATELY (not in background) to ensure stats are recorded
+    try {
+      const errorDuration = 0; // We don't know the exact error duration
+      await trackApiResponseTime("text", errorDuration, true, false);
+      console.log(`[AI Analysis] API error stats tracked successfully`);
+    } catch (statsError) {
+      console.error(
+        "[AI Analysis] Error tracking API error stats:",
+        statsError
+      );
+    }
+
+    // Track additional error stats in background (non-essential)
     setImmediate(async () => {
       try {
         await statsIncrement("ai:api:errors");
-
-        // Track error response time for monitoring
-        const errorDuration = 0; // We don't know the exact error duration
-        await trackApiResponseTime("text", errorDuration, true, false);
       } catch (error) {
-        console.error("[AI Analysis] Error tracking API error:", error);
+        console.error(
+          "[AI Analysis] Error tracking additional error stats:",
+          error
+        );
       }
     });
 
@@ -1056,7 +1074,7 @@ Available flags: "abuse", "phone", "email", "address", "creditCard", "cvv", "soc
 
 CRITICAL REQUIREMENTS:
 1. Set "isViolation" to true ONLY for ACTUAL prohibited content that's not explicitly allowed
-2. List ONLY relevant flags for disallowed content types 
+2. List ONLY relevant flags for disallowed content types
 3. In "reason", be BRIEF and generic (e.g., "contains a phone number")
 4. When unsure, DO NOT flag—better to miss borderline cases than block legit content`;
 
