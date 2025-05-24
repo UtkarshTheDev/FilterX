@@ -42,6 +42,10 @@ export interface Config {
     responseTTL: number;
     minResponseTTL: number;
     maxResponseTTL: number;
+    routeCacheSize: number;
+    routeCacheMemoryMB: number;
+    compressionEnabled: boolean;
+    compressionThreshold: number;
   };
 }
 
@@ -103,5 +107,15 @@ export const config: Config = {
       process.env.CACHE_MAX_RESPONSE_TTL || "604800",
       10
     ), // Maximum TTL: 1 week
+    routeCacheSize: parseInt(process.env.ROUTE_CACHE_SIZE || "2000", 10), // Route cache entries
+    routeCacheMemoryMB: parseInt(
+      process.env.ROUTE_CACHE_MEMORY_MB || "100",
+      10
+    ), // Route cache memory limit
+    compressionEnabled: process.env.CACHE_COMPRESSION_ENABLED !== "false", // Enable compression by default
+    compressionThreshold: parseInt(
+      process.env.CACHE_COMPRESSION_THRESHOLD || "1024",
+      10
+    ), // 1KB threshold
   },
 };

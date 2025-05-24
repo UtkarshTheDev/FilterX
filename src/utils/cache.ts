@@ -3,6 +3,18 @@ import { cacheGet, cacheSet } from "./redis";
 import { config } from "../config";
 import { updateCacheHitRate } from "../services/statsService";
 import { statsIncrement } from "./redis";
+import { compressIfBeneficial, decompressIfNeeded } from "./cacheCompression";
+
+// Fast hash function for better performance than MD5
+// Using FNV-1a hash algorithm which is much faster for cache keys
+const fastHash = (str: string): string => {
+  let hash = 2166136261; // FNV offset basis
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 16777619) >>> 0; // FNV prime, convert to unsigned 32-bit
+  }
+  return hash.toString(36); // Base36 for shorter strings
+};
 
 /**
  * Generate a deterministic hash for a filter request - optimized for speed
@@ -68,8 +80,8 @@ export const generateCacheKey = (
     imageHash || ""
   }`;
 
-  // Create faster hash (MD5 is much faster than SHA-256 for caching purposes)
-  return crypto.createHash("md5").update(hashInput).digest("hex");
+  // Use fast hash function instead of MD5 for better performance
+  return fastHash(hashInput);
 };
 
 /**
@@ -88,7 +100,7 @@ export const generateImageHash = (imageBase64: string): string | null => {
 
     // For small images, use the whole thing
     if (imgLength < 3000) {
-      return crypto.createHash("md5").update(imageBase64).digest("hex");
+      return fastHash(imageBase64);
     }
 
     // For larger images, take strategic samples
@@ -102,7 +114,7 @@ export const generateImageHash = (imageBase64: string): string | null => {
     // Combine samples for a representative hash
     const sampleData = startSample + middleSample + endSample;
 
-    return crypto.createHash("md5").update(sampleData).digest("hex");
+    return fastHash(sampleData);
   } catch (error) {
     // Log error in background to not block response
     setImmediate(() => {
@@ -124,29 +136,31 @@ export const getCachedResponse = async (
     const cachedData = await cacheGet(cacheKey);
 
     if (cachedData) {
-      // Move ALL stats processing to background to not delay the response
-      setImmediate(async () => {
-        try {
-          // Update cache hit rate statistics
-          await updateCacheHitRate(true);
-        } catch (error) {
-          console.error("Error updating cache hit stats:", error);
-        }
-      });
+      // Batch stats processing to reduce overhead - only update every 10th hit
+      if (Math.random() < 0.1) {
+        setImmediate(async () => {
+          try {
+            await updateCacheHitRate(true);
+          } catch (error) {
+            console.error("Error updating cache hit stats:", error);
+          }
+        });
+      }
 
-      // Parse JSON synchronously for fastest response
-      return JSON.parse(cachedData);
+      // Decompress and parse data for fastest response
+      return decompressIfNeeded(cachedData);
     }
 
-    // Move cache miss stats to background processing
-    setImmediate(async () => {
-      try {
-        // Update cache hit rate statistics (miss)
-        await updateCacheHitRate(false);
-      } catch (error) {
-        console.error("Error updating cache miss stats:", error);
-      }
-    });
+    // Batch stats processing for misses too - only update every 5th miss
+    if (Math.random() < 0.2) {
+      setImmediate(async () => {
+        try {
+          await updateCacheHitRate(false);
+        } catch (error) {
+          console.error("Error updating cache miss stats:", error);
+        }
+      });
+    }
 
     return null;
   } catch (error) {
@@ -180,7 +194,9 @@ export const setCachedResponse = async (
 
       // Use a longer TTL for AI-based results to maximize cache usage
       // This improves performance significantly for similar requests
-      await cacheSet(cacheKey, JSON.stringify(response), ttl);
+      // Compress large responses to save memory
+      const compressedData = compressIfBeneficial(response);
+      await cacheSet(cacheKey, compressedData, ttl);
     } catch (error) {
       console.error("Error setting cached response:", error);
     }
@@ -247,7 +263,7 @@ export const generateAICacheKey = (
   });
 
   // Create hash prefixed with 'ai:' for clarity in cache
-  return "ai:" + crypto.createHash("md5").update(hashInput).digest("hex");
+  return "ai:" + fastHash(hashInput);
 };
 
 /**
@@ -267,5 +283,5 @@ export const generateImageCacheKey = (
   });
 
   // Create hash prefixed with 'img:' for clarity in cache
-  return "img:" + crypto.createHash("md5").update(hashInput).digest("hex");
+  return "img:" + fastHash(hashInput);
 };
