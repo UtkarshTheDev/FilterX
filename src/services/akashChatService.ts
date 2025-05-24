@@ -20,6 +20,23 @@ const client = axios.create({
   decompress: true, // Handle gzip/deflate responses to reduce payload size
 });
 
+/**
+ * Get the appropriate model for the specified tier
+ * @param tier Model tier (pro, normal, fast)
+ * @returns Model name for the tier
+ */
+const getModelForTier = (tier: string): string => {
+  switch (tier) {
+    case "pro":
+      return config.akashChat.modelTiers.pro;
+    case "fast":
+      return config.akashChat.modelTiers.fast;
+    case "normal":
+    default:
+      return config.akashChat.modelTiers.normal;
+  }
+};
+
 // Pre-compiled regex patterns for maximum performance
 export const PATTERNS = {
   // Phone patterns
@@ -623,12 +640,14 @@ export const isAIReviewNeeded = (
  * @param text Text to analyze
  * @param oldMessages Previous messages for context
  * @param filterConfig Configuration for content filtering
+ * @param modelTier AI model tier to use (pro, normal, fast)
  * @returns Analysis result with flags, reasoning, and filtered content
  */
 export const analyzeTextContent = async (
   text: string,
   oldMessages: Array<any> = [],
-  filterConfig: Record<string, boolean> = {}
+  filterConfig: Record<string, boolean> = {},
+  modelTier: string = "normal"
 ): Promise<{
   isViolation: boolean;
   flags: string[];
@@ -720,15 +739,18 @@ export const analyzeTextContent = async (
       ...messageHistory,
     ];
 
+    // Select model based on tier
+    const selectedModel = getModelForTier(modelTier);
+
     // Track API call starting time for performance monitoring
     const apiCallStartTime = Date.now();
 
     // Make API request - optimized for speed
     console.log(
-      `[AI Analysis] Sending request to Akash Chat API with ${messages.length} messages`
+      `[AI Analysis] Sending request to Akash Chat API with ${messages.length} messages using model: ${selectedModel} (tier: ${modelTier})`
     );
     const response = await client.post("/chat/completions", {
-      model: config.akashChat.model,
+      model: selectedModel,
       messages: messages,
       temperature: 0.1, // Lower temperature for faster, more consistent responses
       max_tokens: 300, // Reduced token count for faster response

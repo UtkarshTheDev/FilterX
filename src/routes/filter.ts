@@ -111,6 +111,9 @@ const generateCacheKey = (req: express.Request): string => {
   if (normalizedBody.oldMessages) {
     bodyString += normalizedBody.oldMessages.length.toString();
   }
+  if (normalizedBody.model) {
+    bodyString += `|model:${normalizedBody.model}`;
+  }
 
   // Create compact string to hash
   const stringToHash = `${req.originalUrl}|${req.method}|${apiKey}|${bodyString}`;
@@ -162,6 +165,10 @@ router.post(
       .optional()
       .isArray()
       .withMessage("oldMessages must be an array"),
+    body("model")
+      .optional()
+      .isIn(["pro", "normal", "fast"])
+      .withMessage("Model must be one of: pro, normal, fast"),
   ],
   // Process the filter request
   filterController.filterContentRequest
@@ -221,6 +228,10 @@ router.post(
       .optional()
       .isArray()
       .withMessage("oldMessages must be an array"),
+    body("items.*.model")
+      .optional()
+      .isIn(["pro", "normal", "fast"])
+      .withMessage("Model must be one of: pro, normal, fast"),
   ],
   // Process the batch filter request
   filterController.filterBatchRequest
@@ -245,6 +256,10 @@ router.post(
       .optional()
       .isArray()
       .withMessage("oldMessages must be an array"),
+    body("model")
+      .optional()
+      .isIn(["pro", "normal", "fast"])
+      .withMessage("Model must be one of: pro, normal, fast"),
   ],
   // Process the text filter request
   filterController.filterTextRequest
@@ -265,6 +280,10 @@ router.post(
       .optional()
       .isObject()
       .withMessage("Config must be an object"),
+    body("model")
+      .optional()
+      .isIn(["pro", "normal", "fast"])
+      .withMessage("Model must be one of: pro, normal, fast"),
   ],
   // Process the image filter request
   filterController.filterImageRequest

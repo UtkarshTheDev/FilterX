@@ -25,6 +25,11 @@ export interface Config {
     baseUrl: string;
     model: string;
     timeout: number;
+    modelTiers: {
+      pro: string;
+      normal: string;
+      fast: string;
+    };
   };
   moonDream: {
     apiKey: string;
@@ -79,8 +84,15 @@ export const config: Config = {
     apiKey: process.env.AKASH_CHAT_API_KEY || "",
     baseUrl:
       process.env.AKASH_CHAT_BASE_URL || "https://chatapi.akash.network/api/v1",
-    model: process.env.AKASH_CHAT_MODEL || "Meta-Llama-3-1-8B-Instruct-FP8",
+    model: process.env.AKASH_CHAT_MODEL || "Meta-Llama-3-3-70B-Instruct", // Default to normal tier
     timeout: parseInt(process.env.AKASH_CHAT_TIMEOUT || "5000", 10), // 5 seconds
+    modelTiers: {
+      pro: process.env.AKASH_CHAT_MODEL_PRO || "Qwen3-235B-A22B-FP8",
+      normal:
+        process.env.AKASH_CHAT_MODEL_NORMAL || "Meta-Llama-3-3-70B-Instruct",
+      fast:
+        process.env.AKASH_CHAT_MODEL_FAST || "Meta-Llama-3-1-8B-Instruct-FP8",
+    },
   },
   moonDream: {
     apiKey: process.env.MOONDREAM_API_KEY || "",

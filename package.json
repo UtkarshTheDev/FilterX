@@ -22,7 +22,8 @@
     "stats:aggregate": "bun run src/workers/statsAggregator.ts",
     "stats:aggregate:display": "node scripts/stats-aggregator.js",
     "stats:check-db": "node scripts/check-db-stats.js",
-    "stats:diagnose": "node scripts/diagnose-stats.js"
+    "stats:diagnose": "node scripts/diagnose-stats.js",
+    "test:model-tiers": "bun run test-model-tiers.js"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",

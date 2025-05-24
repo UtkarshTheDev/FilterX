@@ -22,13 +22,15 @@ const fastHash = (str: string): string => {
  * @param config Filter configuration
  * @param oldMessages Previous messages (optional)
  * @param imageHash Image hash (optional)
+ * @param modelTier AI model tier (optional, defaults to 'normal')
  * @returns Hash string
  */
 export const generateCacheKey = (
   text: string,
   filterConfig: Record<string, any>,
   oldMessages?: Array<any>,
-  imageHash?: string
+  imageHash?: string,
+  modelTier?: string
 ): string => {
   // Create a more compact cache key to reduce processing time
   // Only include essential configuration options that affect the result
@@ -78,7 +80,7 @@ export const generateCacheKey = (
   // Combine the parts with delimiters for uniqueness
   const hashInput = `${textSample}|${configString}|${messagesString}|${
     imageHash || ""
-  }`;
+  }|${modelTier || "normal"}`;
 
   // Use fast hash function instead of MD5 for better performance
   return fastHash(hashInput);

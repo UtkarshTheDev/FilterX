@@ -24,7 +24,7 @@ export const filterController = {
 
       // Extract request data with minimal processing
       // Use destructuring with default values for faster access
-      const { text = "", image, config, oldMessages = [] } = req.body;
+      const { text = "", image, config, oldMessages = [], model } = req.body;
 
       // CRITICAL FIX: Validate config to ensure all flags default to false
       const validatedConfig = validateFilterConfig(config);
@@ -35,6 +35,7 @@ export const filterController = {
         image,
         config: validatedConfig,
         oldMessages,
+        model,
       };
 
       // Process filter request - this is the critical part that must run
@@ -108,6 +109,7 @@ export const filterController = {
             image: item.image,
             config: validatedConfig,
             oldMessages: item.oldMessages || [],
+            model: item.model,
           };
 
           // Process filter request
@@ -143,7 +145,7 @@ export const filterController = {
       const startTime = performance.now();
 
       // Extract request data with default values for speed
-      const { text, config, oldMessages = [] } = req.body;
+      const { text, config, oldMessages = [], model } = req.body;
 
       // Essential validation
       if (!text) {
@@ -158,6 +160,7 @@ export const filterController = {
         text,
         config: validatedConfig,
         oldMessages,
+        model,
       };
 
       // Process filter request - critical operation
@@ -193,7 +196,7 @@ export const filterController = {
       const startTime = performance.now();
 
       // Extract request data with default values for speed
-      const { image, config } = req.body;
+      const { image, config, model } = req.body;
 
       // Essential validation
       if (!image) {
@@ -208,6 +211,7 @@ export const filterController = {
         text: "", // Empty text for image-only requests
         image,
         config: validatedConfig,
+        model,
       };
 
       // Process filter request - critical operation

@@ -37,12 +37,16 @@ export interface FilterConfig {
   analyzeImages?: boolean;
 }
 
+// Valid model tiers
+export type ModelTier = "pro" | "normal" | "fast";
+
 // Interface for filter request
 export interface FilterRequest {
   text: string;
   image?: string;
   config?: FilterConfig | Record<string, any>;
   oldMessages?: Array<any>;
+  model?: ModelTier;
 }
 
 // Interface for filter response
@@ -99,9 +103,13 @@ export const filterContent = async (
     ...(request.config || {}),
   };
 
-  // Log configuration in background
+  // Validate and set model tier
+  const modelTier = validateModelTier(request.model);
+
+  // Log configuration and model tier in background
   setImmediate(() => {
     console.log(`[Filter] Using configuration:`, JSON.stringify(config));
+    console.log(`[Filter] Using model tier: ${modelTier}`);
   });
 
   // Limit old messages to 15 - must happen before processing
@@ -122,7 +130,8 @@ export const filterContent = async (
     request.text || "",
     config,
     oldMessages,
-    imageHash || ""
+    imageHash || "",
+    modelTier
   );
 
   let isCached = false;
@@ -291,7 +300,8 @@ export const filterContent = async (
               const aiResult = await analyzeTextContent(
                 request.text,
                 oldMessages,
-                config
+                config,
+                modelTier
               );
 
               // Track AI processing time in background
@@ -567,6 +577,28 @@ export const filterContent = async (
   });
 
   return response;
+};
+
+/**
+ * Validate model tier parameter
+ * @param model Model tier string
+ * @returns Validated model tier or 'normal' as default
+ */
+export const validateModelTier = (model: any): ModelTier => {
+  // If model is not provided or invalid, default to 'normal'
+  if (!model || typeof model !== "string") {
+    return "normal";
+  }
+
+  // Check if the model is one of the valid tiers
+  const validTiers: ModelTier[] = ["pro", "normal", "fast"];
+  if (validTiers.includes(model as ModelTier)) {
+    return model as ModelTier;
+  }
+
+  // If invalid tier provided, log warning and default to 'normal'
+  console.log(`[Model] Invalid model tier '${model}', defaulting to 'normal'`);
+  return "normal";
 };
 
 /**
