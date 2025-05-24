@@ -45,6 +45,7 @@ async function waitForRedisReady(maxWaitMs: number = 10000): Promise<void> {
 /**
  * Aggregates request statistics from Redis and stores them in the database
  * This function is designed to be called periodically (e.g., every hour)
+ * FIXED: Now properly accumulates stats instead of overwriting them
  */
 export async function aggregateAndStoreRequestStats(): Promise<boolean> {
   try {
@@ -54,7 +55,7 @@ export async function aggregateAndStoreRequestStats(): Promise<boolean> {
     // CRITICAL FIX: Wait for Redis to be ready before reading stats
     await waitForRedisReady();
 
-    // Get current stats from Redis (using optimized key set)
+    // Get current incremental stats from Redis (these are increments since last aggregation)
     const [totalRequests, blockedRequests, cachedRequests] =
       await statsGetMulti([
         "stats:requests:total",
@@ -62,27 +63,24 @@ export async function aggregateAndStoreRequestStats(): Promise<boolean> {
         "stats:requests:cached",
       ]);
 
-    // Calculate filtered requests (derived value)
-    const totalReq = parseInt(totalRequests || "0", 10);
-    const blockedReq = parseInt(blockedRequests || "0", 10);
-    const filteredRequests = (totalReq - blockedReq).toString();
-
-    // Get latency stats from the optimized latency list
-    const latencyStats = await getLatencyStatsFromRedis();
-
-    // Prepare data for database
-    const statsData: NewRequestStatsDaily = {
-      date: today, // Use string format for date
-      totalRequests: parseInt(totalRequests || "0", 10),
-      filteredRequests: parseInt(filteredRequests || "0", 10),
-      blockedRequests: parseInt(blockedRequests || "0", 10),
-      cachedRequests: parseInt(cachedRequests || "0", 10),
-      avgResponseTimeMs: latencyStats.average,
-      p95ResponseTimeMs: latencyStats.p95,
-      updatedAt: new Date(),
+    // Parse Redis incremental values
+    const redisIncrements = {
+      total: parseInt(totalRequests || "0", 10),
+      blocked: parseInt(blockedRequests || "0", 10),
+      cached: parseInt(cachedRequests || "0", 10),
     };
 
-    // Upsert to database
+    // Calculate filtered requests increment (derived value)
+    const filteredIncrement = redisIncrements.total - redisIncrements.blocked;
+
+    // Get latency stats from Redis for current period
+    const latencyStats = await getLatencyStatsFromRedis();
+
+    logger.info(
+      `Redis increments - Total: ${redisIncrements.total}, Blocked: ${redisIncrements.blocked}, Cached: ${redisIncrements.cached}, Filtered: ${filteredIncrement}`
+    );
+
+    // Upsert to database with proper accumulation
     await db.transaction(async (tx: any) => {
       // Check if record exists for today
       const existingRecord = await tx
@@ -90,18 +88,55 @@ export async function aggregateAndStoreRequestStats(): Promise<boolean> {
         .from(requestStatsDaily)
         .where(eq(requestStatsDaily.date, today));
 
+      let finalStats: NewRequestStatsDaily;
+
       if (existingRecord.length > 0) {
-        // Update existing record
+        // ACCUMULATE: Add Redis increments to existing database values
+        const existing = existingRecord[0];
+
+        finalStats = {
+          date: today,
+          totalRequests: existing.totalRequests + redisIncrements.total,
+          filteredRequests: existing.filteredRequests + filteredIncrement,
+          blockedRequests: existing.blockedRequests + redisIncrements.blocked,
+          cachedRequests: existing.cachedRequests + redisIncrements.cached,
+          // For latency, use current period stats if we have new data, otherwise keep existing
+          avgResponseTimeMs:
+            latencyStats.average > 0
+              ? latencyStats.average
+              : existing.avgResponseTimeMs,
+          p95ResponseTimeMs:
+            latencyStats.p95 > 0
+              ? latencyStats.p95
+              : existing.p95ResponseTimeMs,
+          updatedAt: new Date(),
+        };
+
         await tx
           .update(requestStatsDaily)
-          .set(statsData)
+          .set(finalStats)
           .where(eq(requestStatsDaily.date, today));
 
-        logger.debug(`Updated request stats for ${today}`);
+        logger.info(
+          `ACCUMULATED request stats for ${today}: DB(${existing.totalRequests}) + Redis(${redisIncrements.total}) = ${finalStats.totalRequests}`
+        );
       } else {
-        // Insert new record
-        await tx.insert(requestStatsDaily).values(statsData);
-        logger.debug(`Inserted new request stats for ${today}`);
+        // INSERT: First time for this date, use Redis values directly
+        finalStats = {
+          date: today,
+          totalRequests: redisIncrements.total,
+          filteredRequests: filteredIncrement,
+          blockedRequests: redisIncrements.blocked,
+          cachedRequests: redisIncrements.cached,
+          avgResponseTimeMs: latencyStats.average,
+          p95ResponseTimeMs: latencyStats.p95,
+          updatedAt: new Date(),
+        };
+
+        await tx.insert(requestStatsDaily).values(finalStats);
+        logger.info(
+          `INSERTED new request stats for ${today}: Total=${finalStats.totalRequests}`
+        );
       }
     });
 
@@ -118,6 +153,7 @@ export async function aggregateAndStoreRequestStats(): Promise<boolean> {
 /**
  * Aggregates API performance metrics from Redis and stores them in the database
  * This function is designed to be called periodically (e.g., every hour)
+ * FIXED: Now properly accumulates API performance stats instead of overwriting them
  */
 export async function aggregateAndStoreApiPerformance(): Promise<boolean> {
   try {
@@ -150,46 +186,42 @@ export async function aggregateAndStoreApiPerformance(): Promise<boolean> {
       // Continue with empty objects - will use default values
     }
 
-    // Parse text API stats with safe defaults
-    const textCalls = parseInt(textApiData["calls"] || "0", 10);
-    const textErrors = parseInt(textApiData["errors"] || "0", 10);
-    const textTotalTime = parseInt(textApiData["total_time"] || "0", 10);
-
-    // Parse image API stats with safe defaults
-    const imageCalls = parseInt(imageApiData["calls"] || "0", 10);
-    const imageErrors = parseInt(imageApiData["errors"] || "0", 10);
-    const imageTotalTime = parseInt(imageApiData["total_time"] || "0", 10);
-
-    // Calculate average response times with safe division
-    const textAvgTime =
-      textCalls > 0 ? Math.round(textTotalTime / textCalls) : 0;
-    const imageAvgTime =
-      imageCalls > 0 ? Math.round(imageTotalTime / imageCalls) : 0;
-
-    // Prepare data for database (cache fields removed)
-    const textApiPerformanceData: NewApiPerformanceHourly = {
-      timestamp: hourTimestamp,
-      apiType: "text",
-      totalCalls: textCalls,
-      errorCalls: textErrors,
-      avgResponseTimeMs: textAvgTime,
+    // Parse Redis incremental values (these are increments since last aggregation)
+    const redisIncrements = {
+      text: {
+        calls: parseInt(textApiData["calls"] || "0", 10),
+        errors: parseInt(textApiData["errors"] || "0", 10),
+        totalTime: parseInt(textApiData["total_time"] || "0", 10),
+      },
+      image: {
+        calls: parseInt(imageApiData["calls"] || "0", 10),
+        errors: parseInt(imageApiData["errors"] || "0", 10),
+        totalTime: parseInt(imageApiData["total_time"] || "0", 10),
+      },
     };
 
-    const imageApiPerformanceData: NewApiPerformanceHourly = {
-      timestamp: hourTimestamp,
-      apiType: "image",
-      totalCalls: imageCalls,
-      errorCalls: imageErrors,
-      avgResponseTimeMs: imageAvgTime,
-    };
+    logger.info(
+      `Redis increments - Text API: calls=${redisIncrements.text.calls}, errors=${redisIncrements.text.errors}, time=${redisIncrements.text.totalTime}`
+    );
+    logger.info(
+      `Redis increments - Image API: calls=${redisIncrements.image.calls}, errors=${redisIncrements.image.errors}, time=${redisIncrements.image.totalTime}`
+    );
 
-    // Upsert to database
+    // Upsert to database with proper accumulation
     await db.transaction(async (tx: any) => {
-      // Upsert text API data
-      await upsertApiPerformance(tx, textApiPerformanceData);
+      // Process text API data
+      await upsertApiPerformanceWithAccumulation(tx, {
+        timestamp: hourTimestamp,
+        apiType: "text",
+        redisIncrements: redisIncrements.text,
+      });
 
-      // Upsert image API data
-      await upsertApiPerformance(tx, imageApiPerformanceData);
+      // Process image API data
+      await upsertApiPerformanceWithAccumulation(tx, {
+        timestamp: hourTimestamp,
+        apiType: "image",
+        redisIncrements: redisIncrements.image,
+      });
     });
 
     logger.info(
@@ -203,39 +235,97 @@ export async function aggregateAndStoreApiPerformance(): Promise<boolean> {
 }
 
 /**
- * Helper function to upsert API performance data
+ * Helper function to upsert API performance data with proper accumulation
+ * FIXED: Now accumulates values instead of overwriting them
  */
-async function upsertApiPerformance(tx: any, data: NewApiPerformanceHourly) {
+async function upsertApiPerformanceWithAccumulation(
+  tx: any,
+  params: {
+    timestamp: Date;
+    apiType: string;
+    redisIncrements: {
+      calls: number;
+      errors: number;
+      totalTime: number;
+    };
+  }
+) {
+  const { timestamp, apiType, redisIncrements } = params;
+
   // Check if record exists
   const existingRecord = await tx
     .select()
     .from(apiPerformanceHourly)
     .where(
       and(
-        eq(apiPerformanceHourly.timestamp, data.timestamp),
-        eq(apiPerformanceHourly.apiType, data.apiType)
+        eq(apiPerformanceHourly.timestamp, timestamp),
+        eq(apiPerformanceHourly.apiType, apiType)
       )
     );
 
+  let finalData: NewApiPerformanceHourly;
+
   if (existingRecord.length > 0) {
-    // Update existing record
+    // ACCUMULATE: Add Redis increments to existing database values
+    const existing = existingRecord[0];
+
+    const newTotalCalls = existing.totalCalls + redisIncrements.calls;
+    const newErrorCalls = existing.errorCalls + redisIncrements.errors;
+
+    // For total time, we need to accumulate and recalculate average
+    // Existing average was based on existing.totalCalls
+    // We need to add the new total time and recalculate
+    const existingTotalTime = existing.avgResponseTimeMs * existing.totalCalls;
+    const newTotalTime = existingTotalTime + redisIncrements.totalTime;
+    const newAvgTime =
+      newTotalCalls > 0 ? Math.round(newTotalTime / newTotalCalls) : 0;
+
+    finalData = {
+      timestamp,
+      apiType,
+      totalCalls: newTotalCalls,
+      errorCalls: newErrorCalls,
+      avgResponseTimeMs: newAvgTime,
+    };
+
     await tx
       .update(apiPerformanceHourly)
-      .set(data)
+      .set(finalData)
       .where(
         and(
-          eq(apiPerformanceHourly.timestamp, data.timestamp),
-          eq(apiPerformanceHourly.apiType, data.apiType)
+          eq(apiPerformanceHourly.timestamp, timestamp),
+          eq(apiPerformanceHourly.apiType, apiType)
         )
       );
+
+    logger.info(
+      `ACCUMULATED ${apiType} API stats: DB(${existing.totalCalls}) + Redis(${redisIncrements.calls}) = ${finalData.totalCalls} calls`
+    );
   } else {
-    // Insert new record
-    await tx.insert(apiPerformanceHourly).values(data);
+    // INSERT: First time for this hour/type, use Redis values directly
+    const avgTime =
+      redisIncrements.calls > 0
+        ? Math.round(redisIncrements.totalTime / redisIncrements.calls)
+        : 0;
+
+    finalData = {
+      timestamp,
+      apiType,
+      totalCalls: redisIncrements.calls,
+      errorCalls: redisIncrements.errors,
+      avgResponseTimeMs: avgTime,
+    };
+
+    await tx.insert(apiPerformanceHourly).values(finalData);
+    logger.info(
+      `INSERTED new ${apiType} API stats: ${finalData.totalCalls} calls`
+    );
   }
 }
 
 /**
  * Aggregates content flag statistics from Redis and stores them in the database
+ * FIXED: Now properly accumulates flag counts instead of overwriting them
  */
 export async function aggregateAndStoreContentFlags(): Promise<boolean> {
   try {
@@ -281,55 +371,79 @@ export async function aggregateAndStoreContentFlags(): Promise<boolean> {
       return false;
     }
 
-    // Prepare data for database
-    const flagsData: NewContentFlagsDaily[] = [];
+    // Parse Redis incremental values
+    const redisIncrements: { flagName: string; count: number }[] = [];
 
     flagKeys.forEach((key, index) => {
       const flagName = key.replace("stats:flags:", "");
       const count = parseInt((results[index][1] as string) || "0", 10);
 
-      flagsData.push({
-        date: today, // Use string format for date
-        flagName,
-        count,
-        updatedAt: new Date(),
-      });
+      if (count > 0) {
+        redisIncrements.push({ flagName, count });
+      }
     });
 
-    // Upsert to database
+    logger.info(
+      `Redis increments - Found ${redisIncrements.length} flags with data`
+    );
+
+    // Upsert to database with proper accumulation
     await db.transaction(async (tx: any) => {
-      for (const flagData of flagsData) {
+      for (const { flagName, count } of redisIncrements) {
         // Check if record exists
         const existingRecord = await tx
           .select()
           .from(contentFlagsDaily)
           .where(
             and(
-              eq(contentFlagsDaily.date, flagData.date),
-              eq(contentFlagsDaily.flagName, flagData.flagName)
+              eq(contentFlagsDaily.date, today),
+              eq(contentFlagsDaily.flagName, flagName)
             )
           );
 
+        let finalData: NewContentFlagsDaily;
+
         if (existingRecord.length > 0) {
-          // Update existing record
+          // ACCUMULATE: Add Redis increment to existing database value
+          const existing = existingRecord[0];
+
+          finalData = {
+            date: today,
+            flagName,
+            count: existing.count + count,
+            updatedAt: new Date(),
+          };
+
           await tx
             .update(contentFlagsDaily)
-            .set(flagData)
+            .set(finalData)
             .where(
               and(
-                eq(contentFlagsDaily.date, flagData.date),
-                eq(contentFlagsDaily.flagName, flagData.flagName)
+                eq(contentFlagsDaily.date, today),
+                eq(contentFlagsDaily.flagName, flagName)
               )
             );
+
+          logger.info(
+            `ACCUMULATED flag ${flagName}: DB(${existing.count}) + Redis(${count}) = ${finalData.count}`
+          );
         } else {
-          // Insert new record
-          await tx.insert(contentFlagsDaily).values(flagData);
+          // INSERT: First time for this flag today, use Redis value directly
+          finalData = {
+            date: today,
+            flagName,
+            count,
+            updatedAt: new Date(),
+          };
+
+          await tx.insert(contentFlagsDaily).values(finalData);
+          logger.info(`INSERTED new flag ${flagName}: ${finalData.count}`);
         }
       }
     });
 
     logger.info(
-      `Successfully aggregated and stored ${flagsData.length} content flags for ${today}`
+      `Successfully aggregated and stored ${redisIncrements.length} content flags for ${today}`
     );
     return true;
   } catch (error) {
@@ -340,6 +454,7 @@ export async function aggregateAndStoreContentFlags(): Promise<boolean> {
 
 /**
  * Aggregates user activity statistics from Redis and stores them in the database
+ * FIXED: Now properly accumulates user activity instead of overwriting it
  */
 export async function aggregateAndStoreUserActivity(): Promise<boolean> {
   try {
@@ -385,8 +500,8 @@ export async function aggregateAndStoreUserActivity(): Promise<boolean> {
       return false;
     }
 
-    // Process user activity data
-    const userActivityData: NewUserActivityDaily[] = [];
+    // Parse Redis incremental values
+    const redisIncrements: { userId: string; requestCount: number }[] = [];
 
     userKeys.forEach((key, index) => {
       try {
@@ -394,58 +509,83 @@ export async function aggregateAndStoreUserActivity(): Promise<boolean> {
         const requestCount = parseInt((results[index][1] as string) || "0", 10);
 
         if (requestCount > 0) {
-          userActivityData.push({
-            date: today,
-            userId,
-            requestCount,
-            blockedCount: 0, // We don't track per-user blocked counts separately
-            updatedAt: new Date(),
-          });
+          redisIncrements.push({ userId, requestCount });
         }
       } catch (error) {
         logger.error(`Error processing user activity for key ${key}:`, error);
       }
     });
 
-    if (userActivityData.length === 0) {
-      logger.info("No valid user activity data to store");
+    if (redisIncrements.length === 0) {
+      logger.info("No valid user activity increments to store");
       return true;
     }
 
-    // Upsert to database
+    logger.info(
+      `Redis increments - Found ${redisIncrements.length} users with activity`
+    );
+
+    // Upsert to database with proper accumulation
     await db.transaction(async (tx: any) => {
-      for (const userData of userActivityData) {
+      for (const { userId, requestCount } of redisIncrements) {
         // Check if record exists
         const existingRecord = await tx
           .select()
           .from(userActivityDaily)
           .where(
             and(
-              eq(userActivityDaily.date, userData.date),
-              eq(userActivityDaily.userId, userData.userId)
+              eq(userActivityDaily.date, today),
+              eq(userActivityDaily.userId, userId)
             )
           );
 
+        let finalData: NewUserActivityDaily;
+
         if (existingRecord.length > 0) {
-          // Update existing record
+          // ACCUMULATE: Add Redis increment to existing database value
+          const existing = existingRecord[0];
+
+          finalData = {
+            date: today,
+            userId,
+            requestCount: existing.requestCount + requestCount,
+            blockedCount: existing.blockedCount, // Keep existing blocked count
+            updatedAt: new Date(),
+          };
+
           await tx
             .update(userActivityDaily)
-            .set(userData)
+            .set(finalData)
             .where(
               and(
-                eq(userActivityDaily.date, userData.date),
-                eq(userActivityDaily.userId, userData.userId)
+                eq(userActivityDaily.date, today),
+                eq(userActivityDaily.userId, userId)
               )
             );
+
+          logger.info(
+            `ACCUMULATED user ${userId}: DB(${existing.requestCount}) + Redis(${requestCount}) = ${finalData.requestCount}`
+          );
         } else {
-          // Insert new record
-          await tx.insert(userActivityDaily).values(userData);
+          // INSERT: First time for this user today, use Redis value directly
+          finalData = {
+            date: today,
+            userId,
+            requestCount,
+            blockedCount: 0, // We don't track per-user blocked counts separately
+            updatedAt: new Date(),
+          };
+
+          await tx.insert(userActivityDaily).values(finalData);
+          logger.info(
+            `INSERTED new user ${userId}: ${finalData.requestCount} requests`
+          );
         }
       }
     });
 
     logger.info(
-      `Successfully aggregated and stored user activity for ${userActivityData.length} users on ${today}`
+      `Successfully aggregated and stored user activity for ${redisIncrements.length} users on ${today}`
     );
     return true;
   } catch (error) {

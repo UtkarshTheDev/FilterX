@@ -272,7 +272,7 @@ async function resetRedisHash(key: string): Promise<void> {
 /**
  * If this script is run directly (not imported), run the aggregation
  */
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   // Run the aggregation and then exit
   runStatsAggregation(true)
     .then(async (success) => {
