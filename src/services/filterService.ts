@@ -13,23 +13,37 @@ import {
 import { trackFilterRequest, trackApiResponseTime } from "./statsService";
 import { statsIncrement } from "../utils/redis";
 
-// Default configuration
+// Default configuration - ALL FLAGS DEFAULT TO FALSE FOR SECURITY
+// This ensures that if no config is provided or if specific flags are missing,
+// the system defaults to the most restrictive/secure mode
 const DEFAULT_CONFIG = {
-  allowAbuse: false,
-  allowPhone: false,
-  allowEmail: false,
-  allowPhysicalInformation: false,
-  allowSocialInformation: false,
-  returnFilteredMessage: false,
-  generateFilteredContent: false,
-  analyzeImages: false,
+  allowAbuse: false, // Block abusive language by default
+  allowPhone: false, // Block phone numbers by default
+  allowEmail: false, // Block email addresses by default
+  allowPhysicalInformation: false, // Block physical addresses by default
+  allowSocialInformation: false, // Block social media handles by default
+  returnFilteredMessage: false, // Don't return filtered content by default
+  generateFilteredContent: false, // Don't generate filtered content by default
+  analyzeImages: false, // Don't analyze images by default
 };
+
+// Interface for filter configuration
+export interface FilterConfig {
+  allowAbuse?: boolean;
+  allowPhone?: boolean;
+  allowEmail?: boolean;
+  allowPhysicalInformation?: boolean;
+  allowSocialInformation?: boolean;
+  returnFilteredMessage?: boolean;
+  generateFilteredContent?: boolean;
+  analyzeImages?: boolean;
+}
 
 // Interface for filter request
 export interface FilterRequest {
   text: string;
   image?: string;
-  config?: Record<string, boolean>;
+  config?: FilterConfig | Record<string, any>;
   oldMessages?: Array<any>;
 }
 
@@ -563,21 +577,53 @@ export const filterContent = async (
 };
 
 /**
- * Validate filter configuration
- * @param config Filter configuration
- * @returns Validated configuration
+ * Validate filter configuration - ensures all flags default to false if not provided
+ * @param config Filter configuration (can be undefined, null, or partial)
+ * @returns Validated configuration with all flags properly set
  */
 export const validateFilterConfig = (
-  config: Record<string, any> = {}
+  config: Record<string, any> | undefined | null = {}
 ): Record<string, boolean> => {
+  // Start with all defaults (all false)
   const validatedConfig: Record<string, boolean> = { ...DEFAULT_CONFIG };
 
+  // If config is null, undefined, or not an object, return defaults
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    console.log(
+      "[Config] Invalid or missing config, using all defaults (all flags = false)"
+    );
+    return validatedConfig;
+  }
+
   // Type checking and sanitization of boolean values
+  // Only override defaults if explicitly provided and truthy
   Object.entries(DEFAULT_CONFIG).forEach(([key, defaultValue]) => {
     if (key in config) {
-      validatedConfig[key] = Boolean(config[key]);
+      // Convert to boolean, but be strict about what counts as "true"
+      // Only explicit true, "true", 1, or "1" should enable a flag
+      const value = config[key];
+      if (value === true || value === "true" || value === 1 || value === "1") {
+        validatedConfig[key] = true;
+      } else {
+        // Everything else (false, "false", 0, "0", null, undefined, etc.) = false
+        validatedConfig[key] = false;
+      }
     } else {
+      // Key not provided, use default (which is false for all flags)
       validatedConfig[key] = defaultValue;
+    }
+  });
+
+  // Log configuration for debugging (in background)
+  setImmediate(() => {
+    const enabledFlags = Object.entries(validatedConfig)
+      .filter(([_, value]) => value === true)
+      .map(([key, _]) => key);
+
+    if (enabledFlags.length > 0) {
+      console.log(`[Config] Enabled flags: ${enabledFlags.join(", ")}`);
+    } else {
+      console.log("[Config] All flags disabled (default secure mode)");
     }
   });
 

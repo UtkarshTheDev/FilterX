@@ -6,7 +6,11 @@ import {
   validateFilterConfig,
   validateOldMessages,
 } from "../services/filterService";
-import type { FilterRequest, FilterResponse } from "../services/filterService";
+import type {
+  FilterRequest,
+  FilterResponse,
+  FilterConfig,
+} from "../services/filterService";
 import { asyncHandler } from "./errorHandler";
 
 /**

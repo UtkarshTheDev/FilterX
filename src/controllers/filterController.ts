@@ -2,7 +2,12 @@ import type { Request, Response, NextFunction } from "express";
 import { asyncHandler } from "../middleware/errorHandler";
 import { AppError } from "../middleware/errorHandler";
 import { statsIncrement } from "../utils/redis";
-import { filterContent, type FilterRequest } from "../services/filterService";
+import {
+  filterContent,
+  validateFilterConfig,
+  type FilterRequest,
+  type FilterConfig,
+} from "../services/filterService";
 
 /**
  * Controller for handling content filtering operations - optimized for maximum speed
@@ -19,10 +24,18 @@ export const filterController = {
 
       // Extract request data with minimal processing
       // Use destructuring with default values for faster access
-      const { text = "", image, config = {}, oldMessages = [] } = req.body;
+      const { text = "", image, config, oldMessages = [] } = req.body;
+
+      // CRITICAL FIX: Validate config to ensure all flags default to false
+      const validatedConfig = validateFilterConfig(config);
 
       // Create filter request - minimal construction for speed
-      const filterRequest: FilterRequest = { text, image, config, oldMessages };
+      const filterRequest: FilterRequest = {
+        text,
+        image,
+        config: validatedConfig,
+        oldMessages,
+      };
 
       // Process filter request - this is the critical part that must run
       const result = await filterContent(
@@ -86,11 +99,14 @@ export const filterController = {
       // Process each item in parallel for maximum speed
       const results = await Promise.all(
         items.map(async (item) => {
+          // CRITICAL FIX: Validate config to ensure all flags default to false
+          const validatedConfig = validateFilterConfig(item.config);
+
           // Create filter request with minimal validation and construction
           const filterRequest: FilterRequest = {
             text: item.text || "",
             image: item.image,
-            config: item.config || {},
+            config: validatedConfig,
             oldMessages: item.oldMessages || [],
           };
 
@@ -127,15 +143,22 @@ export const filterController = {
       const startTime = performance.now();
 
       // Extract request data with default values for speed
-      const { text, config = {}, oldMessages = [] } = req.body;
+      const { text, config, oldMessages = [] } = req.body;
 
       // Essential validation
       if (!text) {
         throw new AppError("Text content is required", 400);
       }
 
+      // CRITICAL FIX: Validate config to ensure all flags default to false
+      const validatedConfig = validateFilterConfig(config);
+
       // Create filter request with minimal construction
-      const filterRequest: FilterRequest = { text, config, oldMessages };
+      const filterRequest: FilterRequest = {
+        text,
+        config: validatedConfig,
+        oldMessages,
+      };
 
       // Process filter request - critical operation
       const result = await filterContent(
@@ -170,18 +193,21 @@ export const filterController = {
       const startTime = performance.now();
 
       // Extract request data with default values for speed
-      const { image, config = {} } = req.body;
+      const { image, config } = req.body;
 
       // Essential validation
       if (!image) {
         throw new AppError("Image content is required", 400);
       }
 
+      // CRITICAL FIX: Validate config to ensure all flags default to false
+      const validatedConfig = validateFilterConfig(config);
+
       // Create filter request with minimal construction
       const filterRequest: FilterRequest = {
         text: "", // Empty text for image-only requests
         image,
-        config,
+        config: validatedConfig,
       };
 
       // Process filter request - critical operation
