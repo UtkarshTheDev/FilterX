@@ -659,7 +659,7 @@ export const analyzeTextContent = async (
       isViolation: false,
       flags: [],
       reason: "Content passed all moderation checks",
-      filteredContent: filterConfig.generateFilteredContent ? text : undefined,
+      filteredContent: filterConfig.returnFilteredMessage ? text : undefined,
     };
   }
 
@@ -1062,7 +1062,7 @@ Your response MUST be in this EXACT JSON format:
   "flags": ["flag1", "flag2", ...],
   "reason": "Brief explanation without showing the sensitive content"`;
 
-  if (normalizedConfig.generateFilteredContent) {
+  if (normalizedConfig.returnFilteredMessage) {
     prompt += `,
   "filteredContent": "Original message with ALL sensitive information replaced with asterisks (*)"`;
   }
@@ -1078,7 +1078,7 @@ CRITICAL REQUIREMENTS:
 3. In "reason", be BRIEF and generic (e.g., "contains a phone number")
 4. When unsure, DO NOT flag—better to miss borderline cases than block legit content`;
 
-  if (normalizedConfig.generateFilteredContent) {
+  if (normalizedConfig.returnFilteredMessage) {
     prompt += `
 5. FILTERED CONTENT RULES:
    - Replace ENTIRE sensitive data with asterisks (*) ONLY FOR DISALLOWED CONTENT TYPES
@@ -1161,7 +1161,7 @@ EXAMPLE RESPONSES:
   "isViolation": true,
   "flags": ["socialMedia", "address"],
   "reason": "Contains a social media handle and an address"${
-    normalizedConfig.generateFilteredContent
+    normalizedConfig.returnFilteredMessage
       ? ',\n  "filteredContent": "My TikTok is *******, **************"'
       : ""
   }
@@ -1175,7 +1175,7 @@ EXAMPLE RESPONSES:
   "isViolation": true,
   "flags": ["socialMedia"],
   "reason": "Contains a social media handle"${
-    normalizedConfig.generateFilteredContent
+    normalizedConfig.returnFilteredMessage
       ? ',\n  "filteredContent": "My TikTok is *******, 123 Main St"'
       : ""
   }

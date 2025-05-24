@@ -117,7 +117,6 @@ Authorization: Bearer sk-1234567890abcdef
 
     // Response Controls
     "returnFilteredMessage": false,    // Return censored version of content
-    "generateFilteredContent": false,  // Generate alternative safe content
 
     // Processing Controls
     "analyzeImages": false            // Enable AI image analysis (slower but more accurate)
@@ -249,28 +248,6 @@ When `true`, returns a censored version with sensitive parts replaced:
 }
 ```
 
-#### ✨ Generate Filtered Content (`generateFilteredContent`)
-
-**Default:** `false` (no content generation)
-
-When `true`, AI generates alternative safe content:
-
-```json
-{
-  "text": "You're an idiot!",
-  "config": {
-    "allowAbuse": false,
-    "generateFilteredContent": true
-  }
-}
-
-// Response includes:
-{
-  "blocked": true,
-  "generatedContent": "I disagree with your opinion."
-}
-```
-
 ### 🖼️ Image Processing Controls
 
 #### 🔍 Analyze Images (`analyzeImages`)
@@ -378,7 +355,7 @@ curl -X POST http://localhost:8000/v1/filter \
       "allowEmail": false,
       "allowPhysicalInformation": false,
       "allowSocialInformation": true,
-      "generateFilteredContent": true
+      "returnFilteredMessage": true
     }
   }'
 ```
@@ -390,7 +367,7 @@ curl -X POST http://localhost:8000/v1/filter \
   "blocked": true,
   "flags": ["abusive_language"],
   "reason": "Contains offensive language",
-  "generatedContent": "Add me on Discord @gamer123, let's play together!",
+  "filteredText": "Add me on Discord @gamer123, but *** **** ** **** ****!",
   "processingTime": 89
 }
 ```
@@ -481,7 +458,6 @@ curl -X POST http://localhost:8000/v1/filter \
   "reason": "Contains phone number and offensive language",
   "text": "Original text content",
   "filteredText": "Censored version with [REDACTED] content",
-  "generatedContent": "AI-generated safe alternative",
   "processingTime": 156,
   "cached": false
 }
@@ -489,16 +465,15 @@ curl -X POST http://localhost:8000/v1/filter \
 
 ### 📋 Response Fields
 
-| Field              | Type     | Description                                         |
-| ------------------ | -------- | --------------------------------------------------- |
-| `blocked`          | boolean  | Whether content was blocked                         |
-| `flags`            | string[] | List of detected issues                             |
-| `reason`           | string   | Human-readable explanation                          |
-| `text`             | string   | Original content                                    |
-| `filteredText`     | string   | Censored version (if `returnFilteredMessage: true`) |
-| `generatedContent` | string   | AI alternative (if `generateFilteredContent: true`) |
-| `processingTime`   | number   | Processing time in milliseconds                     |
-| `cached`           | boolean  | Whether result came from cache                      |
+| Field            | Type     | Description                                         |
+| ---------------- | -------- | --------------------------------------------------- |
+| `blocked`        | boolean  | Whether content was blocked                         |
+| `flags`          | string[] | List of detected issues                             |
+| `reason`         | string   | Human-readable explanation                          |
+| `text`           | string   | Original content                                    |
+| `filteredText`   | string   | Censored version (if `returnFilteredMessage: true`) |
+| `processingTime` | number   | Processing time in milliseconds                     |
+| `cached`         | boolean  | Whether result came from cache                      |
 
 ---
 

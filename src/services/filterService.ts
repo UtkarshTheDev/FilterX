@@ -23,7 +23,6 @@ const DEFAULT_CONFIG = {
   allowPhysicalInformation: false, // Block physical addresses by default
   allowSocialInformation: false, // Block social media handles by default
   returnFilteredMessage: false, // Don't return filtered content by default
-  generateFilteredContent: false, // Don't generate filtered content by default
   analyzeImages: false, // Don't analyze images by default
 };
 
@@ -35,7 +34,6 @@ export interface FilterConfig {
   allowPhysicalInformation?: boolean;
   allowSocialInformation?: boolean;
   returnFilteredMessage?: boolean;
-  generateFilteredContent?: boolean;
   analyzeImages?: boolean;
 }
 
@@ -293,12 +291,7 @@ export const filterContent = async (
               const aiResult = await analyzeTextContent(
                 request.text,
                 oldMessages,
-                {
-                  ...config,
-                  // Only generate filtered content if it was requested
-                  generateFilteredContent:
-                    config.returnFilteredMessage || false,
-                }
+                config
               );
 
               // Track AI processing time in background
