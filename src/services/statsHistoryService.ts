@@ -19,20 +19,22 @@ export async function getHistoricalRequestStats(
   endDate: string
 ) {
   try {
-    logger.debug(`Getting historical request stats from ${startDate} to ${endDate}`);
-    
+    logger.debug(
+      `Getting historical request stats from ${startDate} to ${endDate}`
+    );
+
     // Query database for daily stats
     const dailyStats = await db
       .select()
       .from(requestStatsDaily)
       .where(
         and(
-          gte(requestStatsDaily.date, new Date(startDate)),
-          lte(requestStatsDaily.date, new Date(endDate))
+          gte(requestStatsDaily.date, startDate),
+          lte(requestStatsDaily.date, endDate)
         )
       )
       .orderBy(requestStatsDaily.date);
-    
+
     return dailyStats;
   } catch (error) {
     logger.error("Error getting historical request stats:", error);
@@ -52,30 +54,35 @@ export async function getHistoricalApiPerformance(
   apiType?: "text" | "image"
 ) {
   try {
-    logger.debug(`Getting historical API performance from ${startDate} to ${endDate}`);
-    
+    logger.debug(
+      `Getting historical API performance from ${startDate} to ${endDate}`
+    );
+
     // Create base query
     let query = db
       .select()
       .from(apiPerformanceHourly)
       .where(
         and(
-          gte(apiPerformanceHourly.timestamp, new Date(`${startDate}T00:00:00Z`)),
+          gte(
+            apiPerformanceHourly.timestamp,
+            new Date(`${startDate}T00:00:00Z`)
+          ),
           lte(apiPerformanceHourly.timestamp, new Date(`${endDate}T23:59:59Z`))
         )
       );
-    
+
     // Add API type filter if specified
     if (apiType) {
       query = query.where(eq(apiPerformanceHourly.apiType, apiType));
     }
-    
+
     // Execute query with ordering
     const apiPerformance = await query.orderBy(
       apiPerformanceHourly.timestamp,
       apiPerformanceHourly.apiType
     );
-    
+
     return apiPerformance;
   } catch (error) {
     logger.error("Error getting historical API performance:", error);
@@ -93,20 +100,22 @@ export async function getHistoricalContentFlags(
   endDate: string
 ) {
   try {
-    logger.debug(`Getting historical content flags from ${startDate} to ${endDate}`);
-    
+    logger.debug(
+      `Getting historical content flags from ${startDate} to ${endDate}`
+    );
+
     // Query database for flag stats
     const flagStats = await db
       .select()
       .from(contentFlagsDaily)
       .where(
         and(
-          gte(contentFlagsDaily.date, new Date(startDate)),
-          lte(contentFlagsDaily.date, new Date(endDate))
+          gte(contentFlagsDaily.date, startDate),
+          lte(contentFlagsDaily.date, endDate)
         )
       )
       .orderBy(contentFlagsDaily.date, contentFlagsDaily.flagName);
-    
+
     return flagStats;
   } catch (error) {
     logger.error("Error getting historical content flags:", error);
@@ -123,7 +132,7 @@ export async function getCombinedStats(timeRange: string = "24h") {
     // Calculate date range based on time range
     const endDate = new Date().toISOString().split("T")[0]; // Today
     let startDate = endDate;
-    
+
     if (timeRange === "24h") {
       // Yesterday
       const yesterday = new Date();
@@ -140,22 +149,22 @@ export async function getCombinedStats(timeRange: string = "24h") {
       monthAgo.setDate(monthAgo.getDate() - 30);
       startDate = monthAgo.toISOString().split("T")[0];
     }
-    
+
     // For very recent stats (last hour), just use Redis
     if (timeRange === "1h") {
       return await getSummaryStats();
     }
-    
+
     // Get historical data from database
     const [requestStats, apiPerformance, contentFlags] = await Promise.all([
       getHistoricalRequestStats(startDate, endDate),
       getHistoricalApiPerformance(startDate, endDate),
       getHistoricalContentFlags(startDate, endDate),
     ]);
-    
+
     // Get recent stats from Redis
     const recentStats = await getSummaryStats();
-    
+
     // Combine the data
     return {
       timeRange,
@@ -188,8 +197,10 @@ export async function getUserActivityStats(
   endDate: string
 ) {
   try {
-    logger.debug(`Getting user activity stats for ${userId} from ${startDate} to ${endDate}`);
-    
+    logger.debug(
+      `Getting user activity stats for ${userId} from ${startDate} to ${endDate}`
+    );
+
     // Query database for user activity
     const userStats = await db
       .select()
@@ -197,12 +208,12 @@ export async function getUserActivityStats(
       .where(
         and(
           eq(userActivityDaily.userId, userId),
-          gte(userActivityDaily.date, new Date(startDate)),
-          lte(userActivityDaily.date, new Date(endDate))
+          gte(userActivityDaily.date, startDate),
+          lte(userActivityDaily.date, endDate)
         )
       )
       .orderBy(userActivityDaily.date);
-    
+
     return userStats;
   } catch (error) {
     logger.error(`Error getting user activity stats for ${userId}:`, error);

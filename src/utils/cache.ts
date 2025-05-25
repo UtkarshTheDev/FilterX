@@ -254,7 +254,7 @@ export const generateAICacheKey = (
 
   // Only include options that affect the AI result
   const essentialOptions = {
-    generateFilteredContent: options.generateFilteredContent,
+    returnFilteredMessage: options.returnFilteredMessage,
   };
 
   // Create compact hash input

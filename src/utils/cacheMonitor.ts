@@ -72,7 +72,7 @@ export class CacheMonitor {
         entryCount: 0,
         evictions: 0,
         compressionRatio: 0,
-        avgResponseTime: 0
+        avgResponseTime: 0,
       };
 
       this.addMetric(metric);
@@ -86,7 +86,7 @@ export class CacheMonitor {
    */
   addMetric(metric: CacheMetrics): void {
     this.metrics.push(metric);
-    
+
     // Keep only recent metrics
     if (this.metrics.length > this.maxMetricsHistory) {
       this.metrics = this.metrics.slice(-this.maxMetricsHistory);
@@ -102,7 +102,7 @@ export class CacheMonitor {
         status: "warning",
         issues: ["No metrics available"],
         recommendations: ["Start cache monitoring"],
-        metrics: this.getDefaultMetrics()
+        metrics: this.getDefaultMetrics(),
       };
     }
 
@@ -123,7 +123,10 @@ export class CacheMonitor {
     }
 
     // Analyze memory usage
-    const memoryUsagePercent = (latestMetric.memoryUsage / (config.caching.routeCacheMemoryMB * 1024 * 1024)) * 100;
+    const memoryUsagePercent =
+      (latestMetric.memoryUsage /
+        (config.caching.routeCacheMemoryMB * 1024 * 1024)) *
+      100;
     if (memoryUsagePercent > 90) {
       status = "critical";
       issues.push(`High memory usage: ${memoryUsagePercent.toFixed(1)}%`);
@@ -143,7 +146,10 @@ export class CacheMonitor {
     }
 
     // Analyze compression effectiveness
-    if (latestMetric.compressionRatio < 10 && config.caching.compressionEnabled) {
+    if (
+      latestMetric.compressionRatio < 10 &&
+      config.caching.compressionEnabled
+    ) {
       issues.push(`Low compression ratio: ${latestMetric.compressionRatio}%`);
       recommendations.push("Review compression threshold settings");
     }
@@ -152,7 +158,7 @@ export class CacheMonitor {
       status,
       issues,
       recommendations,
-      metrics: latestMetric
+      metrics: latestMetric,
     };
   }
 
@@ -164,7 +170,8 @@ export class CacheMonitor {
 
     const recent = this.metrics.slice(-5); // Last 5 metrics
     const timeSpan = recent[recent.length - 1].timestamp - recent[0].timestamp;
-    const evictionDiff = recent[recent.length - 1].evictions - recent[0].evictions;
+    const evictionDiff =
+      recent[recent.length - 1].evictions - recent[0].evictions;
 
     return timeSpan > 0 ? (evictionDiff / timeSpan) * 60000 : 0; // Per minute
   }
@@ -173,7 +180,7 @@ export class CacheMonitor {
    * Get performance trends
    */
   getPerformanceTrends(): {
-    hitRateTrend: "improving" | "declining" | "stable";
+    hitRateTrend: "increasing" | "decreasing" | "stable";
     memoryTrend: "increasing" | "decreasing" | "stable";
     evictionTrend: "increasing" | "decreasing" | "stable";
   } {
@@ -181,33 +188,42 @@ export class CacheMonitor {
       return {
         hitRateTrend: "stable",
         memoryTrend: "stable",
-        evictionTrend: "stable"
+        evictionTrend: "stable",
       };
     }
 
     const recent = this.metrics.slice(-10);
     const older = this.metrics.slice(-20, -10);
 
-    const avgRecentHitRate = recent.reduce((sum, m) => sum + m.hitRate, 0) / recent.length;
-    const avgOlderHitRate = older.reduce((sum, m) => sum + m.hitRate, 0) / older.length;
+    const avgRecentHitRate =
+      recent.reduce((sum, m) => sum + m.hitRate, 0) / recent.length;
+    const avgOlderHitRate =
+      older.reduce((sum, m) => sum + m.hitRate, 0) / older.length;
 
-    const avgRecentMemory = recent.reduce((sum, m) => sum + m.memoryUsage, 0) / recent.length;
-    const avgOlderMemory = older.reduce((sum, m) => sum + m.memoryUsage, 0) / older.length;
+    const avgRecentMemory =
+      recent.reduce((sum, m) => sum + m.memoryUsage, 0) / recent.length;
+    const avgOlderMemory =
+      older.reduce((sum, m) => sum + m.memoryUsage, 0) / older.length;
 
-    const avgRecentEvictions = recent.reduce((sum, m) => sum + m.evictions, 0) / recent.length;
-    const avgOlderEvictions = older.reduce((sum, m) => sum + m.evictions, 0) / older.length;
+    const avgRecentEvictions =
+      recent.reduce((sum, m) => sum + m.evictions, 0) / recent.length;
+    const avgOlderEvictions =
+      older.reduce((sum, m) => sum + m.evictions, 0) / older.length;
 
     return {
       hitRateTrend: this.getTrend(avgRecentHitRate, avgOlderHitRate),
       memoryTrend: this.getTrend(avgRecentMemory, avgOlderMemory),
-      evictionTrend: this.getTrend(avgRecentEvictions, avgOlderEvictions)
+      evictionTrend: this.getTrend(avgRecentEvictions, avgOlderEvictions),
     };
   }
 
   /**
    * Determine trend direction
    */
-  private getTrend(recent: number, older: number): "improving" | "declining" | "stable" {
+  private getTrend(
+    recent: number,
+    older: number
+  ): "increasing" | "decreasing" | "stable" {
     const threshold = 0.05; // 5% threshold for stability
     const change = (recent - older) / older;
 
@@ -224,16 +240,22 @@ export class CacheMonitor {
     const recommendations: string[] = [...health.recommendations];
 
     // Add trend-based recommendations
-    if (trends.hitRateTrend === "declining") {
-      recommendations.push("Hit rate is declining - review cache key strategy");
+    if (trends.hitRateTrend === "decreasing") {
+      recommendations.push(
+        "Hit rate is decreasing - review cache key strategy"
+      );
     }
 
     if (trends.memoryTrend === "increasing") {
-      recommendations.push("Memory usage is increasing - consider compression or size limits");
+      recommendations.push(
+        "Memory usage is increasing - consider compression or size limits"
+      );
     }
 
     if (trends.evictionTrend === "increasing") {
-      recommendations.push("Eviction rate is increasing - consider larger cache or better TTL");
+      recommendations.push(
+        "Eviction rate is increasing - consider larger cache or better TTL"
+      );
     }
 
     // Remove duplicates
@@ -251,7 +273,7 @@ export class CacheMonitor {
       entryCount: 0,
       evictions: 0,
       compressionRatio: 0,
-      avgResponseTime: 0
+      avgResponseTime: 0,
     };
   }
 
@@ -286,21 +308,26 @@ export class CacheMonitor {
         avgHitRate: 0,
         avgMemoryUsage: 0,
         totalEvictions: 0,
-        timeSpan: 0
+        timeSpan: 0,
       };
     }
 
-    const avgHitRate = this.metrics.reduce((sum, m) => sum + m.hitRate, 0) / this.metrics.length;
-    const avgMemoryUsage = this.metrics.reduce((sum, m) => sum + m.memoryUsage, 0) / this.metrics.length;
+    const avgHitRate =
+      this.metrics.reduce((sum, m) => sum + m.hitRate, 0) / this.metrics.length;
+    const avgMemoryUsage =
+      this.metrics.reduce((sum, m) => sum + m.memoryUsage, 0) /
+      this.metrics.length;
     const totalEvictions = this.metrics[this.metrics.length - 1].evictions;
-    const timeSpan = this.metrics[this.metrics.length - 1].timestamp - this.metrics[0].timestamp;
+    const timeSpan =
+      this.metrics[this.metrics.length - 1].timestamp -
+      this.metrics[0].timestamp;
 
     return {
       totalMetrics: this.metrics.length,
       avgHitRate: Math.round(avgHitRate * 100) / 100,
       avgMemoryUsage: Math.round(avgMemoryUsage),
       totalEvictions,
-      timeSpan
+      timeSpan,
     };
   }
 }

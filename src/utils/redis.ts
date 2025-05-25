@@ -285,7 +285,11 @@ if (redisClient) {
       isRedisAvailable = true;
     })
     .catch((error) => {
-      logger.warn("Redis startup ping failed, will use memory cache:", error);
+      logger.warn(
+        `Redis startup ping failed, will use memory cache: ${
+          error.message || error
+        }`
+      );
       isRedisAvailable = false;
     });
 }

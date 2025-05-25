@@ -64,10 +64,12 @@ class ApiKeyMemoryCache {
     // If cache is at capacity, remove the oldest item (first item in Map)
     if (this.cache.size >= this.maxSize) {
       const oldestKey = this.cache.keys().next().value;
-      this.cache.delete(oldestKey);
-      logger.debug(
-        `Memory cache: removed oldest API key entry due to capacity`
-      );
+      if (oldestKey) {
+        this.cache.delete(oldestKey);
+        logger.debug(
+          `Memory cache: removed oldest API key entry due to capacity`
+        );
+      }
     }
 
     // Set new entry with expiry time

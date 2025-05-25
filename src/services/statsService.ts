@@ -3,10 +3,9 @@ import {
   statsGet,
   statsGetMulti,
   statsHGetAll,
-  statsLRange,
   statsIncrement,
+  redisClient,
 } from "../utils/redis";
-import { config } from "../config";
 
 // Stat key prefixes - optimized to reduce redundancy
 const KEY_PREFIXES = {
@@ -94,7 +93,7 @@ export const trackFilterRequest = async (
       );
 
       // Log any errors in the pipeline results
-      results.forEach((result, index) => {
+      results.forEach((result: any, index: number) => {
         if (result && result[0]) {
           console.error(
             `[Stats] Pipeline operation ${index} failed:`,
@@ -535,7 +534,7 @@ export const trackApiResponseTime = async (
       );
 
       // Log any errors in the pipeline results
-      results.forEach((result, index) => {
+      results.forEach((result: any, index: number) => {
         if (result && result[0]) {
           console.error(
             `[Stats] API stats pipeline operation ${index} failed:`,

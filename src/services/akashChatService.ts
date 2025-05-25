@@ -969,7 +969,7 @@ const createSystemPrompt = (filterConfig: Record<string, boolean>): string => {
     allowEmail: filterConfig.allowEmail === true,
     allowPhysicalInformation: filterConfig.allowPhysicalInformation === true,
     allowSocialInformation: filterConfig.allowSocialInformation === true,
-    generateFilteredContent: filterConfig.generateFilteredContent === true,
+    returnFilteredMessage: filterConfig.returnFilteredMessage === true,
   };
 
   // Track which content types we need to check
@@ -992,7 +992,7 @@ Your response MUST be in this EXACT JSON format:
   "isViolation": false,
   "flags": [],
   "reason": "All content types are allowed"${
-    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+    normalizedConfig.returnFilteredMessage ? ',\n  "filteredContent": ""' : ""
   }
 }`;
   }
@@ -1123,7 +1123,7 @@ EXAMPLE RESPONSES:
   "isViolation": true,
   "flags": ["phone", "email"],
   "reason": "Contains a phone number and an email address"${
-    normalizedConfig.generateFilteredContent
+    normalizedConfig.returnFilteredMessage
       ? ',\n  "filteredContent": "Call me at ************** or ******************"'
       : ""
   }
@@ -1134,7 +1134,7 @@ EXAMPLE RESPONSES:
   "isViolation": true,
   "flags": ["phone"],
   "reason": "Contains a phone number"${
-    normalizedConfig.generateFilteredContent
+    normalizedConfig.returnFilteredMessage
       ? ',\n  "filteredContent": "Call me at ************** or user@example.com"'
       : ""
   }
@@ -1145,7 +1145,7 @@ EXAMPLE RESPONSES:
   "isViolation": true,
   "flags": ["email"],
   "reason": "Contains an email address"${
-    normalizedConfig.generateFilteredContent
+    normalizedConfig.returnFilteredMessage
       ? ',\n  "filteredContent": "Call me at +1-555-123-4567 or ******************"'
       : ""
   }
@@ -1156,7 +1156,7 @@ EXAMPLE RESPONSES:
   "isViolation": false,
   "flags": [],
   "reason": "Content passed all moderation checks"${
-    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+    normalizedConfig.returnFilteredMessage ? ',\n  "filteredContent": ""' : ""
   }
 }`;
   }
@@ -1168,7 +1168,7 @@ EXAMPLE RESPONSES:
   "isViolation": false,
   "flags": [],
   "reason": "Content passed all moderation checks"${
-    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+    normalizedConfig.returnFilteredMessage ? ',\n  "filteredContent": ""' : ""
   }
 }
 
@@ -1211,7 +1211,7 @@ EXAMPLE RESPONSES:
   "isViolation": true,
   "flags": ["address"],
   "reason": "Contains an address"${
-    normalizedConfig.generateFilteredContent
+    normalizedConfig.returnFilteredMessage
       ? ',\n  "filteredContent": "My TikTok is funuser, **************"'
       : ""
   }
@@ -1222,7 +1222,7 @@ EXAMPLE RESPONSES:
   "isViolation": false,
   "flags": [],
   "reason": "Content passed all moderation checks"${
-    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+    normalizedConfig.returnFilteredMessage ? ',\n  "filteredContent": ""' : ""
   }
 }`;
   }
@@ -1234,7 +1234,7 @@ If no violations:
   "isViolation": false,
   "flags": [],
   "reason": "Content passed all moderation checks"${
-    normalizedConfig.generateFilteredContent ? ',\n  "filteredContent": ""' : ""
+    normalizedConfig.returnFilteredMessage ? ',\n  "filteredContent": ""' : ""
   }
 }
 `;
