@@ -11,13 +11,17 @@ import {
   getCombinedStats,
   getUserActivityStats,
 } from "../services/statsHistoryService";
+import {
+  getDatabaseStats,
+  getTimeSeriesData,
+} from "../services/statsDbFirstService";
 
 /**
  * Controller for handling stats operations
  */
 export const statsController = {
   /**
-   * Get summary statistics
+   * Get summary statistics (ENHANCED: Database-first with Redis fallback)
    */
   getSummaryStats: asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -32,6 +36,101 @@ export const statsController = {
         timestamp: new Date().toISOString(),
         version: process.env.npm_package_version || "1.0.0",
       });
+    }
+  ),
+
+  /**
+   * NEW: Get comprehensive database-first statistics
+   * This endpoint provides better performance and reliability than Redis-based stats
+   * If no timeRange is provided, returns ALL stats (no time limitation)
+   */
+  getDatabaseStats: asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+      // Get time range from query params (optional - if not provided, returns ALL stats)
+      const timeRange = req.query.timeRange as string | undefined;
+
+      // Validate time range if provided
+      if (
+        timeRange &&
+        !["today", "yesterday", "7d", "30d"].includes(timeRange)
+      ) {
+        return res.status(400).json({
+          error:
+            "Invalid time range. Use 'today', 'yesterday', '7d', or '30d'. Leave empty for all-time stats.",
+        });
+      }
+
+      try {
+        const stats = await getDatabaseStats(timeRange);
+        return res.status(200).json({
+          success: true,
+          ...stats,
+          version: process.env.npm_package_version || "1.0.0",
+        });
+      } catch (error) {
+        logger.error("Error getting database stats:", error);
+        return res.status(500).json({
+          error: "Failed to fetch database statistics",
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+  ),
+
+  /**
+   * NEW: Get time-series data for charts and analytics
+   */
+  getTimeSeriesData: asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+      // Get date range from query params with defaults
+      const endDate =
+        (req.query.endDate as string) || new Date().toISOString().split("T")[0];
+
+      // Default start date is 7 days before end date
+      const defaultStartDate = new Date(endDate);
+      defaultStartDate.setDate(defaultStartDate.getDate() - 7);
+      const startDate =
+        (req.query.startDate as string) ||
+        defaultStartDate.toISOString().split("T")[0];
+
+      // Get granularity with default
+      const granularity =
+        (req.query.granularity as "daily" | "hourly") || "daily";
+
+      // Validate date format
+      if (!isValidDateFormat(startDate) || !isValidDateFormat(endDate)) {
+        return res.status(400).json({
+          error: "Invalid date format. Use YYYY-MM-DD format.",
+        });
+      }
+
+      // Validate granularity
+      if (!["daily", "hourly"].includes(granularity)) {
+        return res.status(400).json({
+          error: "Invalid granularity. Use 'daily' or 'hourly'.",
+        });
+      }
+
+      try {
+        const timeSeriesData = await getTimeSeriesData(
+          startDate,
+          endDate,
+          granularity
+        );
+        return res.status(200).json({
+          success: true,
+          startDate,
+          endDate,
+          timestamp: new Date().toISOString(),
+          ...timeSeriesData,
+        });
+      } catch (error) {
+        logger.error("Error getting time-series data:", error);
+        return res.status(500).json({
+          error: "Failed to fetch time-series data",
+          timestamp: new Date().toISOString(),
+        });
+      }
     }
   ),
 

@@ -12,8 +12,16 @@ import { statsController } from "../controllers/statsController";
 const router = Router();
 
 /**
- * Get public stats summary
+ * Get comprehensive database-first statistics (MAIN ENDPOINT)
  * @route GET /stats
+ * @group Stats - Main statistics endpoint (RECOMMENDED)
+ * @returns {object} 200 - Comprehensive database statistics
+ */
+router.get("/", statsController.getDatabaseStats);
+
+/**
+ * Get public stats summary (LEGACY - use / instead)
+ * @route GET /stats/summary
  * @group Stats - Performance statistics and metrics
  * @returns {object} 200 - System statistics
  */
@@ -78,6 +86,14 @@ router.get("/historical", statsController.getHistoricalStats);
  * @returns {object} 200 - Combined statistics
  */
 router.get("/combined", statsController.getCombinedStats);
+
+/**
+ * NEW: Get time-series data for charts and analytics
+ * @route GET /stats/timeseries
+ * @group Stats - Time-series data for analytics
+ * @returns {object} 200 - Time-series statistics data
+ */
+router.get("/timeseries", statsController.getTimeSeriesData);
 
 /**
  * Get user activity statistics

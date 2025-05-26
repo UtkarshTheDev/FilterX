@@ -302,186 +302,318 @@ export const updateCacheHitRate = async (
 };
 
 /**
- * Get summary stats - optimized to work with consolidated keys
+ * DATABASE-FIRST APPROACH: Get summary stats directly from database
+ * This new implementation prioritizes database as the primary source of truth
+ * and falls back to Redis only when necessary for real-time data
  */
 export const getSummaryStats = async () => {
   try {
-    // Get basic request stats with error handling
-    let totalRequests: string | null = "0",
-      blockedRequests: string | null = "0",
-      cachedRequests: string | null = "0";
+    logger.info("Getting summary stats using database-first approach");
+
+    // Import database dependencies
+    const { db } = await import("../db");
+    const { sql } = await import("drizzle-orm");
+    const { requestStatsDaily, apiPerformanceHourly, contentFlagsDaily } =
+      await import("../models/statsSchema");
+
+    // Get today's date for current day stats
+    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+
+    // Get current hour timestamp for API performance
+    const currentHour = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      now.getHours(),
+      0,
+      0,
+      0
+    );
+
+    // 1. Get today's request statistics from database
+    let todayStats = {
+      totalRequests: 0,
+      filteredRequests: 0,
+      blockedRequests: 0,
+      cachedRequests: 0,
+      avgResponseTimeMs: 0,
+      p95ResponseTimeMs: 0,
+    };
 
     try {
-      const results = await statsGetMulti([
-        KEY_PREFIXES.TOTAL_REQUESTS,
-        KEY_PREFIXES.BLOCKED_REQUESTS,
-        KEY_PREFIXES.CACHED_REQUESTS,
-      ]);
-      totalRequests = results[0];
-      blockedRequests = results[1];
-      cachedRequests = results[2];
-    } catch (error) {
-      console.error("Error fetching basic request stats:", error);
-      // Continue with default values
-    }
+      const todayStatsResult = await db
+        .select()
+        .from(requestStatsDaily)
+        .where(sql`${requestStatsDaily.date} = ${today}`)
+        .limit(1);
 
-    // Parse basic stats with safe defaults
-    const totalReq = parseInt(totalRequests || "0", 10);
-    const blockedReq = parseInt(blockedRequests || "0", 10);
-    // Calculate filtered requests (derived value)
-    const filteredReq = totalReq - blockedReq;
-
-    // We're no longer tracking cache hit rates in Redis
-    // Just use the cached requests count as a proxy
-    const cachedReq = parseInt(cachedRequests || "0", 10);
-    const cacheHitRate =
-      totalReq > 0 ? Math.round((cachedReq / totalReq) * 100) : 0;
-
-    // Get API stats from consolidated hashes with error handling
-    let textApiData: Record<string, string> = {};
-    let imageApiData: Record<string, string> = {};
-
-    try {
-      if (redisClient && redisClient.status === "ready") {
-        textApiData = (await redisClient.hgetall("api:stats:text")) || {};
-        imageApiData = (await redisClient.hgetall("api:stats:image")) || {};
+      if (todayStatsResult.length > 0) {
+        const stats = todayStatsResult[0];
+        todayStats = {
+          totalRequests: stats.totalRequests,
+          filteredRequests: stats.filteredRequests,
+          blockedRequests: stats.blockedRequests,
+          cachedRequests: stats.cachedRequests,
+          avgResponseTimeMs: stats.avgResponseTimeMs,
+          p95ResponseTimeMs: stats.p95ResponseTimeMs,
+        };
+        logger.debug(
+          `Found today's stats in database: ${stats.totalRequests} total requests`
+        );
+      } else {
+        logger.debug(
+          "No stats found in database for today, will use Redis fallback"
+        );
       }
     } catch (error) {
-      console.error("Error fetching API stats from Redis:", error);
-      // Continue with empty objects
+      logger.error("Error fetching today's stats from database:", error);
     }
 
-    // Parse API stats
-    const aiApiCalls = parseInt(textApiData["calls"] || "0", 10);
-    const aiApiErrors = parseInt(textApiData["errors"] || "0", 10);
-    const aiApiTotalTime = parseInt(textApiData["total_time"] || "0", 10);
-
-    const imageApiCalls = parseInt(imageApiData["calls"] || "0", 10);
-    const imageApiErrors = parseInt(imageApiData["errors"] || "0", 10);
-    const imageApiTotalTime = parseInt(imageApiData["total_time"] || "0", 10);
-
-    // Cache stats are no longer tracked (removed from database schema)
-
-    // Get AI and image stats only (removed prescreening, performance, and filter controller metrics)
-    let aiCalled: string | null = "0",
-      aiBlocked: string | null = "0",
-      aiAllowed: string | null = "0",
-      aiErrors: string | null = "0";
-    let imageCalled: string | null = "0",
-      imageBlocked: string | null = "0",
-      imageAllowed: string | null = "0",
-      imageErrors: string | null = "0";
+    // 2. Get current hour's API performance from database
+    let apiPerformance = {
+      text: { calls: 0, errors: 0, avgResponseTime: 0 },
+      image: { calls: 0, errors: 0, avgResponseTime: 0 },
+    };
 
     try {
-      const results = await statsGetMulti([
-        "filter:ai:called",
-        "filter:ai:blocked",
-        "filter:ai:allowed",
-        "filter:ai:errors",
-        "filter:image:called",
-        "filter:image:blocked",
-        "filter:image:allowed",
-        "filter:image:errors",
-      ]);
-      aiCalled = results[0];
-      aiBlocked = results[1];
-      aiAllowed = results[2];
-      aiErrors = results[3];
-      imageCalled = results[4];
-      imageBlocked = results[5];
-      imageAllowed = results[6];
-      imageErrors = results[7];
+      const apiPerfResults = await db
+        .select()
+        .from(apiPerformanceHourly)
+        .where(sql`${apiPerformanceHourly.timestamp} = ${currentHour}`)
+        .orderBy(apiPerformanceHourly.apiType);
+
+      for (const perf of apiPerfResults) {
+        if (perf.apiType === "text") {
+          apiPerformance.text = {
+            calls: perf.totalCalls,
+            errors: perf.errorCalls,
+            avgResponseTime: perf.avgResponseTimeMs,
+          };
+        } else if (perf.apiType === "image") {
+          apiPerformance.image = {
+            calls: perf.totalCalls,
+            errors: perf.errorCalls,
+            avgResponseTime: perf.avgResponseTimeMs,
+          };
+        }
+      }
+      logger.debug(
+        `Found API performance in database: text=${apiPerformance.text.calls}, image=${apiPerformance.image.calls}`
+      );
     } catch (error) {
-      console.error("Error fetching AI and image filter stats:", error);
-      // Continue with default values
+      logger.error("Error fetching API performance from database:", error);
     }
 
-    // Parse AI and image stats
-    const aiCalledVal = parseInt(aiCalled || "0", 10);
-    const aiBlockedVal = parseInt(aiBlocked || "0", 10);
-    const aiAllowedVal = parseInt(aiAllowed || "0", 10);
-    const aiErrorsVal = parseInt(aiErrors || "0", 10);
-    const imageCalledVal = parseInt(imageCalled || "0", 10);
-    const imageBlockedVal = parseInt(imageBlocked || "0", 10);
-    const imageAllowedVal = parseInt(imageAllowed || "0", 10);
-    const imageErrorsVal = parseInt(imageErrors || "0", 10);
+    // 3. Get today's content flags from database
+    let flagStats: Record<string, number> = {};
 
-    // Calculate derived values
-    const aiTotal = aiBlockedVal + aiAllowedVal;
-    const aiBlockRate =
-      aiTotal > 0 ? Math.round((aiBlockedVal / aiTotal) * 100) : 0;
+    try {
+      const flagResults = await db
+        .select()
+        .from(contentFlagsDaily)
+        .where(sql`${contentFlagsDaily.date} = ${today}`);
 
-    // Calculate API latency averages
-    const aiApiAvgTime =
-      aiApiCalls > 0 ? Math.round(aiApiTotalTime / aiApiCalls) : 0;
-    const imageApiAvgTime =
-      imageApiCalls > 0 ? Math.round(imageApiTotalTime / imageApiCalls) : 0;
+      for (const flag of flagResults) {
+        flagStats[flag.flagName] = flag.count;
+      }
+      logger.debug(
+        `Found ${Object.keys(flagStats).length} flag types in database`
+      );
+    } catch (error) {
+      logger.error("Error fetching content flags from database:", error);
+    }
 
-    // Get latency stats
-    const latencyStats = await getLatencyStats();
+    // 4. FALLBACK: If database has no data for today, get incremental data from Redis
+    if (todayStats.totalRequests === 0) {
+      logger.info(
+        "No database stats for today, fetching incremental data from Redis"
+      );
 
-    // Get flag stats
-    const flagStats = await getFlagStats();
+      try {
+        const [totalRequests, blockedRequests, cachedRequests] =
+          await statsGetMulti([
+            KEY_PREFIXES.TOTAL_REQUESTS,
+            KEY_PREFIXES.BLOCKED_REQUESTS,
+            KEY_PREFIXES.CACHED_REQUESTS,
+          ]);
 
-    return {
-      totalRequests: totalReq,
-      filteredRequests: filteredReq,
-      blockedRequests: blockedReq,
-      cachedRequests: parseInt(cachedRequests || "0", 10),
-      todayRequests: totalReq, // Today's requests are now the same as total
+        todayStats.totalRequests = parseInt(totalRequests || "0", 10);
+        todayStats.blockedRequests = parseInt(blockedRequests || "0", 10);
+        todayStats.cachedRequests = parseInt(cachedRequests || "0", 10);
+        todayStats.filteredRequests =
+          todayStats.totalRequests - todayStats.blockedRequests;
+
+        // Get latency stats from Redis if available
+        const latencyStats = await getLatencyStats();
+        todayStats.avgResponseTimeMs = latencyStats.average;
+        todayStats.p95ResponseTimeMs = latencyStats.p95;
+
+        logger.debug(
+          `Redis fallback stats: ${todayStats.totalRequests} total requests`
+        );
+      } catch (error) {
+        logger.error("Error fetching fallback stats from Redis:", error);
+      }
+    }
+
+    // 5. FALLBACK: If database has no API performance for current hour, get from Redis
+    if (apiPerformance.text.calls === 0 && apiPerformance.image.calls === 0) {
+      logger.info(
+        "No database API performance for current hour, fetching from Redis"
+      );
+
+      try {
+        const textApiData = (await statsHGetAll("api:stats:text")) || {};
+        const imageApiData = (await statsHGetAll("api:stats:image")) || {};
+
+        apiPerformance.text = {
+          calls: parseInt(textApiData["calls"] || "0", 10),
+          errors: parseInt(textApiData["errors"] || "0", 10),
+          avgResponseTime:
+            parseInt(textApiData["calls"] || "0", 10) > 0
+              ? Math.round(
+                  parseInt(textApiData["total_time"] || "0", 10) /
+                    parseInt(textApiData["calls"] || "1", 10)
+                )
+              : 0,
+        };
+
+        apiPerformance.image = {
+          calls: parseInt(imageApiData["calls"] || "0", 10),
+          errors: parseInt(imageApiData["errors"] || "0", 10),
+          avgResponseTime:
+            parseInt(imageApiData["calls"] || "0", 10) > 0
+              ? Math.round(
+                  parseInt(imageApiData["total_time"] || "0", 10) /
+                    parseInt(imageApiData["calls"] || "1", 10)
+                )
+              : 0,
+        };
+
+        logger.debug(
+          `Redis API fallback: text=${apiPerformance.text.calls}, image=${apiPerformance.image.calls}`
+        );
+      } catch (error) {
+        logger.error(
+          "Error fetching API performance fallback from Redis:",
+          error
+        );
+      }
+    }
+
+    // 6. FALLBACK: If database has no flags for today, get from Redis
+    if (Object.keys(flagStats).length === 0) {
+      logger.info("No database flags for today, fetching from Redis");
+      flagStats = await getFlagStats();
+    }
+
+    // Calculate derived metrics
+    const cacheHitRate =
+      todayStats.totalRequests > 0
+        ? Math.round(
+            (todayStats.cachedRequests / todayStats.totalRequests) * 100
+          )
+        : 0;
+
+    const textApiErrorRate =
+      apiPerformance.text.calls > 0
+        ? Math.round(
+            (apiPerformance.text.errors / apiPerformance.text.calls) * 100
+          )
+        : 0;
+
+    const imageApiErrorRate =
+      apiPerformance.image.calls > 0
+        ? Math.round(
+            (apiPerformance.image.errors / apiPerformance.image.calls) * 100
+          )
+        : 0;
+
+    // Return comprehensive stats with database-first approach
+    const result = {
+      totalRequests: todayStats.totalRequests,
+      filteredRequests: todayStats.filteredRequests,
+      blockedRequests: todayStats.blockedRequests,
+      cachedRequests: todayStats.cachedRequests,
+      todayRequests: todayStats.totalRequests,
       cacheHitRate: cacheHitRate,
-      latency: latencyStats,
+      latency: {
+        average: todayStats.avgResponseTimeMs,
+        p50: Math.round(todayStats.avgResponseTimeMs * 0.9), // Estimated
+        p95: todayStats.p95ResponseTimeMs,
+        p99: Math.round(todayStats.p95ResponseTimeMs * 1.1), // Estimated
+      },
       flags: flagStats,
-      // Add optimization stats
       optimization: {
         cache: {
-          hits: cachedReq,
-          misses: totalReq - cachedReq,
+          hits: todayStats.cachedRequests,
+          misses: todayStats.totalRequests - todayStats.cachedRequests,
           hitRate: cacheHitRate,
         },
         ai: {
-          called: aiCalledVal,
-          blocked: aiBlockedVal,
-          allowed: aiAllowedVal,
-          errors: aiErrorsVal,
-          blockRate: aiBlockRate,
-          usagePercent:
-            totalReq > 0 ? Math.round((aiCalledVal / totalReq) * 100) : 0,
-          // AI API performance metrics (cache tracking removed)
           api: {
-            calls: aiApiCalls,
-            errors: aiApiErrors,
-            avgResponseTime: aiApiAvgTime,
-            errorRate:
-              aiApiCalls > 0 ? Math.round((aiApiErrors / aiApiCalls) * 100) : 0,
+            calls: apiPerformance.text.calls,
+            errors: apiPerformance.text.errors,
+            avgResponseTime: apiPerformance.text.avgResponseTime,
+            errorRate: textApiErrorRate,
           },
         },
         image: {
-          called: imageCalledVal,
-          blocked: imageBlockedVal,
-          allowed: imageAllowedVal,
-          errors: imageErrorsVal,
-          // Image API performance metrics (cache tracking removed)
           api: {
-            calls: imageApiCalls,
-            errors: imageApiErrors,
-            avgResponseTime: imageApiAvgTime,
-            errorRate:
-              imageApiCalls > 0
-                ? Math.round((imageApiErrors / imageApiCalls) * 100)
-                : 0,
+            calls: apiPerformance.image.calls,
+            errors: apiPerformance.image.errors,
+            avgResponseTime: apiPerformance.image.avgResponseTime,
+            errorRate: imageApiErrorRate,
           },
         },
-        // Simplified performance metrics - we're not tracking detailed buckets anymore
         performance: {
-          avgResponseTime: latencyStats.average,
-          p95ResponseTime: latencyStats.p95,
+          avgResponseTime: todayStats.avgResponseTimeMs,
+          p95ResponseTime: todayStats.p95ResponseTimeMs,
         },
       },
+      dataSource: {
+        primary: "database",
+        fallbackUsed: todayStats.totalRequests === 0 ? "redis" : "none",
+        timestamp: new Date().toISOString(),
+      },
     };
+
+    logger.info(
+      `Summary stats retrieved successfully using database-first approach`
+    );
+    return result;
   } catch (error) {
-    console.error("Error getting summary stats:", error);
-    return null;
+    logger.error(
+      "Error getting summary stats with database-first approach:",
+      error
+    );
+
+    // Ultimate fallback: return basic structure with zeros
+    return {
+      totalRequests: 0,
+      filteredRequests: 0,
+      blockedRequests: 0,
+      cachedRequests: 0,
+      todayRequests: 0,
+      cacheHitRate: 0,
+      latency: { average: 0, p50: 0, p95: 0, p99: 0 },
+      flags: {},
+      optimization: {
+        cache: { hits: 0, misses: 0, hitRate: 0 },
+        ai: { api: { calls: 0, errors: 0, avgResponseTime: 0, errorRate: 0 } },
+        image: {
+          api: { calls: 0, errors: 0, avgResponseTime: 0, errorRate: 0 },
+        },
+        performance: { avgResponseTime: 0, p95ResponseTime: 0 },
+      },
+      dataSource: {
+        primary: "fallback",
+        fallbackUsed: "error",
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 };
 
