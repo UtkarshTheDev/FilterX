@@ -1,8 +1,5 @@
-import {
-  analyzeTextContent,
-  isAIReviewNeeded,
-  PATTERNS,
-} from "./akashChatService";
+import { isAIReviewNeeded, PATTERNS } from "./akashChatService";
+import { analyzeTextContentWithProvider } from "./aiProviderFactory";
 import { analyzeImageContent, optimizeImage } from "./moonDreamService";
 import {
   generateCacheKey,
@@ -297,7 +294,7 @@ export const filterContent = async (
 
             try {
               // AI analysis is essential and must run before response
-              const aiResult = await analyzeTextContent(
+              const aiResult = await analyzeTextContentWithProvider(
                 request.text,
                 oldMessages,
                 config,

@@ -31,6 +31,24 @@ export interface Config {
       fast: string;
     };
   };
+  gemini: {
+    apiKey: string;
+    timeout: number;
+  };
+  modelTiers: {
+    pro: {
+      provider: "akash" | "gemini";
+      model: string;
+    };
+    normal: {
+      provider: "akash" | "gemini";
+      model: string;
+    };
+    fast: {
+      provider: "akash" | "gemini";
+      model: string;
+    };
+  };
   moonDream: {
     apiKey: string;
     baseUrl: string;
@@ -92,6 +110,31 @@ export const config: Config = {
         process.env.AKASH_CHAT_MODEL_NORMAL || "Meta-Llama-3-3-70B-Instruct",
       fast:
         process.env.AKASH_CHAT_MODEL_FAST || "Meta-Llama-3-1-8B-Instruct-FP8",
+    },
+  },
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY || "",
+    timeout: parseInt(process.env.GEMINI_TIMEOUT || "5000", 10), // 5 seconds
+  },
+  modelTiers: {
+    pro: {
+      provider:
+        (process.env.MODEL_TIER_PRO_PROVIDER as "akash" | "gemini") || "akash",
+      model: process.env.MODEL_TIER_PRO_MODEL || "Qwen3-235B-A22B-FP8",
+    },
+    normal: {
+      provider:
+        (process.env.MODEL_TIER_NORMAL_PROVIDER as "akash" | "gemini") ||
+        "akash",
+      model:
+        process.env.MODEL_TIER_NORMAL_MODEL || "Meta-Llama-3-3-70B-Instruct",
+    },
+    fast: {
+      provider:
+        (process.env.MODEL_TIER_FAST_PROVIDER as "akash" | "gemini") ||
+        "gemini",
+      model:
+        process.env.MODEL_TIER_FAST_MODEL || "gemini-2.5-flash-preview-05-20",
     },
   },
   moonDream: {

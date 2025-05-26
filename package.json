@@ -24,7 +24,8 @@
     "stats:check-db": "node scripts/check-db-stats.js",
     "stats:diagnose": "node scripts/diagnose-stats.js",
     "test:model-tiers": "bun run test-model-tiers.js",
-  "check:ts": "tsc --noEmit"
+    "test:providers": "node test-provider-integration.js",
+    "check:ts": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
@@ -42,6 +43,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@google/genai": "0.3.1",
     "@types/jest": "^29.5.14",
     "@types/mocha": "^10.0.10",
     "axios": "^1.8.4",
@@ -55,6 +57,7 @@
     "helmet": "^8.1.0",
     "ioredis": "^5.6.1",
     "jsonwebtoken": "^9.0.2",
+    "mime": "4.0.7",
     "moondream": "^0.1.0",
     "morgan": "^1.10.0",
     "pg": "^8.14.1",

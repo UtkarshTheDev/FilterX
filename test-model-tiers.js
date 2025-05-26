@@ -5,14 +5,14 @@
  * This script tests the new 'model' parameter functionality
  *
  * Usage: bun run test-model-tiers.js
- * Make sure AKASH_CHAT_API_KEY is set in your environment
+ * Make sure DEV_API_KEY is set in your environment
  */
 
 import axios from "axios";
 
 // Configuration
 const BASE_URL = "http://localhost:8000";
-const API_KEY = process.env.AKASH_CHAT_API_KEY || "test-api-key";
+const API_KEY = process.env.DEV_API_KEY || "test-api-key";
 
 // Realistic test cases that require AI review - different complexity levels
 const testCases = [
@@ -169,8 +169,8 @@ async function testCase(testCase) {
 
     // Analysis results
     if (response.data) {
-      const { isViolation, flags, reason, filteredContent } = response.data;
-      console.log(`🔍 Violation Detected: ${isViolation ? "YES" : "NO"}`);
+      const { blocked, flags, reason, filteredContent } = response.data;
+      console.log(`🔍 Violation Detected: ${blocked ? "YES" : "NO"}`);
       if (flags && flags.length > 0) {
         console.log(`🚩 Flags: ${flags.join(", ")}`);
       }
@@ -335,7 +335,7 @@ async function main() {
   console.log(
     "🔑 API Key:",
     API_KEY !== "test-api-key"
-      ? "✅ Loaded from AKASH_CHAT_API_KEY"
+      ? "✅ Loaded from DEV_API_KEY"
       : "⚠️  Using default test key"
   );
   console.log("");
