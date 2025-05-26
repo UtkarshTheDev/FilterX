@@ -117,19 +117,24 @@ export const filterController = {
         })
       );
 
-      // Send response immediately
+      // PERFORMANCE OPTIMIZATION: Calculate processing time before response
+      const processingTime = Math.round(performance.now() - startTime);
+
+      // Set processing time header before sending response
+      res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
+      // Send response immediately - this is the critical optimization
       res.status(200).json({ results });
 
-      // Calculate processing time AFTER the response is sent
+      // Process non-essential tasks after response is sent
       setImmediate(() => {
-        const processingTime = Math.round(performance.now() - startTime);
-
-        // Set processing time in header
-        // Note: This won't affect the response since it's already sent
-        res.setHeader("X-Processing-Time", `${processingTime}ms`);
-
         console.log(
-          `[Controller] Batch request processed in ${processingTime}ms`
+          `[Controller] Batch request processed in ${processingTime}ms - response sent`
+        );
+
+        // Additional background logging or metrics can go here
+        console.log(
+          `[Controller] Background processing complete for batch request (${items.length} items)`
         );
       });
     }
@@ -169,18 +174,24 @@ export const filterController = {
         req.userId || "anonymous"
       );
 
-      // Send response immediately
+      // PERFORMANCE OPTIMIZATION: Calculate processing time before response
+      const processingTime = Math.round(performance.now() - startTime);
+
+      // Set processing time header before sending response
+      res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
+      // Send response immediately - this is the critical optimization
       res.status(200).json(result);
 
       // Process non-essential tasks after response is sent
       setImmediate(() => {
-        const processingTime = Math.round(performance.now() - startTime);
-
-        // Set processing time in header (for logging only, response already sent)
-        res.setHeader("X-Processing-Time", `${processingTime}ms`);
-
         console.log(
-          `[Controller] Text request processed in ${processingTime}ms`
+          `[Controller] Text request processed in ${processingTime}ms - response sent`
+        );
+
+        // Additional background logging or metrics can go here
+        console.log(
+          `[Controller] Background processing complete for text request`
         );
       });
     }
@@ -220,18 +231,24 @@ export const filterController = {
         req.userId || "anonymous"
       );
 
-      // Send response immediately
+      // PERFORMANCE OPTIMIZATION: Calculate processing time before response
+      const processingTime = Math.round(performance.now() - startTime);
+
+      // Set processing time header before sending response
+      res.setHeader("X-Processing-Time", `${processingTime}ms`);
+
+      // Send response immediately - this is the critical optimization
       res.status(200).json(result);
 
       // Process non-essential tasks after response is sent
       setImmediate(() => {
-        const processingTime = Math.round(performance.now() - startTime);
-
-        // Set processing time in header (for logging only, response already sent)
-        res.setHeader("X-Processing-Time", `${processingTime}ms`);
-
         console.log(
-          `[Controller] Image request processed in ${processingTime}ms`
+          `[Controller] Image request processed in ${processingTime}ms - response sent`
+        );
+
+        // Additional background logging or metrics can go here
+        console.log(
+          `[Controller] Background processing complete for image request`
         );
       });
     }

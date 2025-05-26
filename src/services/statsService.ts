@@ -22,7 +22,8 @@ const KEY_PREFIXES = {
 };
 
 /**
- * Track a filter request
+ * Track a filter request - OPTIMIZED FOR BACKGROUND PROCESSING
+ * This function is designed to be called from setImmediate() to not block API responses
  */
 export const trackFilterRequest = async (
   userId: string,
@@ -33,7 +34,7 @@ export const trackFilterRequest = async (
 ) => {
   try {
     console.log(
-      `[Stats] Tracking filter request for user: ${userId}, blocked: ${isBlocked}, cached: ${isCached}, flags: [${flags.join(
+      `[Stats] [BACKGROUND] Tracking filter request for user: ${userId}, blocked: ${isBlocked}, cached: ${isCached}, flags: [${flags.join(
         ", "
       )}]`
     );
@@ -485,7 +486,8 @@ const getFlagStats = async () => {
 };
 
 /**
- * Track API call response time - optimized to reduce Redis keys
+ * Track API call response time - OPTIMIZED FOR BACKGROUND PROCESSING
+ * This function is designed to be called from setImmediate() to not block API responses
  * @param apiType Type of API ('text' or 'image')
  * @param responseTimeMs Response time in milliseconds
  * @param isError Whether the call resulted in an error
@@ -499,7 +501,7 @@ export const trackApiResponseTime = async (
 ): Promise<void> => {
   try {
     console.log(
-      `[Stats] Tracking API response time for ${apiType}: ${responseTimeMs}ms, error: ${isError}, cached: ${isCacheHit}`
+      `[Stats] [BACKGROUND] Tracking API response time for ${apiType}: ${responseTimeMs}ms, error: ${isError}, cached: ${isCacheHit}`
     );
 
     // Store data in Redis using a hash to reduce key count
