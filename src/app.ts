@@ -20,27 +20,26 @@ import { statsController } from "./controllers/statsController";
 // Initialize express app
 const app: Express = express();
 
-// Custom request logger middleware
+// Custom request logger middleware - optimized for reduced verbosity
 const requestLogger = (req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
-  const { method, path, ip } = req;
-
-  // Log request info
-  logger.debug(`${method} ${path} - Request received from ${ip}`);
+  const { method, path } = req;
 
   // Log response when finished
   res.on("finish", () => {
     const duration = Date.now() - start;
     const statusCode = res.statusCode;
 
-    // Log with different levels based on status code
+    // Only log errors, warnings, and slow requests to reduce noise
     if (statusCode >= 500) {
       logger.error(`${method} ${path} - ${statusCode} - ${duration}ms`);
     } else if (statusCode >= 400) {
       logger.warn(`${method} ${path} - ${statusCode} - ${duration}ms`);
-    } else {
-      logger.info(`${method} ${path} - ${statusCode} - ${duration}ms`);
+    } else if (duration > 500) {
+      // Only log slow successful requests (>500ms)
+      logger.perf(`${method} ${path} - ${statusCode} - ${duration}ms (slow)`);
     }
+    // Remove routine success logging to reduce noise
   });
 
   next();

@@ -8,6 +8,7 @@ import {
   type FilterRequest,
   type FilterConfig,
 } from "../services/filterService";
+import logger from "../utils/logger";
 
 /**
  * Controller for handling content filtering operations - optimized for maximum speed
@@ -68,34 +69,17 @@ export const filterController = {
 
       // CORRECTED: ALL non-essential operations after response is sent
       setImmediate(() => {
-        const backgroundStartTime = performance.now();
+        // Optimized performance logging - single line format
+        const aiUsed = result.flags && result.flags.length > 0;
+        const cached = result.cached || false;
+        const blocked = result.blocked || false;
 
-        // Enhanced performance logging matching original format
-        const requestId =
-          req.headers["x-request-id"] ||
-          `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-        console.log(`🚀 [Performance Summary] Request ${requestId}`);
-        console.log(`├── Total Time: ${processingTime}ms`);
-        console.log(`├── Core Processing: ${processingTime}ms (100%)`);
-        console.log(`├── Background Tasks: 0ms (0%)`);
-        console.log(`├── Cache Hit: ${result.cached ? "✅" : "❌"}`);
-        console.log(
-          `├── AI Used: ${
-            result.flags && result.flags.length > 0 ? "🤖" : "⚡"
-          }`
-        );
-        console.log(
-          `├── Response Size: ${JSON.stringify(result).length} bytes`
-        );
-        console.log(`└── User: ${req.userId || "anonymous"}`);
-
-        const backgroundTime = performance.now() - backgroundStartTime;
-        console.log(
-          `[Controller] Request processed in ${processingTime}ms - background completed in ${backgroundTime.toFixed(
-            2
-          )}ms`
-        );
+        // Use structured logger for performance monitoring
+        logger.apiPerf(req.method, req.path, processingTime, res.statusCode, {
+          ai: aiUsed,
+          cache: cached,
+          blocked: blocked,
+        });
       });
     }
   ),
@@ -152,33 +136,16 @@ export const filterController = {
 
       // CORRECTED: ALL non-essential tasks after response is sent
       setImmediate(() => {
-        const backgroundStartTime = performance.now();
-
-        // Enhanced batch performance logging
-        const requestId =
-          req.headers["x-request-id"] ||
-          `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-        console.log(`🚀 [Performance Summary] Batch Request ${requestId}`);
-        console.log(`├── Total Time: ${processingTime}ms`);
-        console.log(`├── Core Processing: ${processingTime}ms (100%)`);
-        console.log(`├── Background Tasks: 0ms (0%)`);
-        console.log(`├── Items Processed: ${items.length}`);
-        console.log(
-          `├── Avg Time per Item: ${Math.round(
+        // Optimized batch performance logging
+        logger.apiPerf(req.method, req.path, processingTime, res.statusCode, {
+          ai: results.some((r) => r.flags && r.flags.length > 0),
+          cache: results.some((r) => r.cached),
+          blocked: results.some((r) => r.blocked),
+        });
+        logger.debug(
+          `Batch processed ${items.length} items, avg ${Math.round(
             processingTime / items.length
-          )}ms`
-        );
-        console.log(
-          `├── Response Size: ${JSON.stringify({ results }).length} bytes`
-        );
-        console.log(`└── User: ${req.userId || "anonymous"}`);
-
-        const backgroundTime = performance.now() - backgroundStartTime;
-        console.log(
-          `[Controller] Batch request processed in ${processingTime}ms - background completed in ${backgroundTime.toFixed(
-            2
-          )}ms`
+          )}ms per item`
         );
       });
     }
@@ -229,34 +196,16 @@ export const filterController = {
 
       // CORRECTED: ALL non-essential tasks after response is sent
       setImmediate(() => {
-        const backgroundStartTime = performance.now();
+        // Optimized text performance logging
+        const aiUsed = result.flags && result.flags.length > 0;
+        const cached = result.cached || false;
+        const blocked = result.blocked || false;
 
-        // Enhanced text performance logging
-        const requestId =
-          req.headers["x-request-id"] ||
-          `text_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-        console.log(`🚀 [Performance Summary] Text Request ${requestId}`);
-        console.log(`├── Total Time: ${processingTime}ms`);
-        console.log(`├── Core Processing: ${processingTime}ms (100%)`);
-        console.log(`├── Background Tasks: 0ms (0%)`);
-        console.log(`├── Cache Hit: ${result.cached ? "✅" : "❌"}`);
-        console.log(
-          `├── AI Used: ${
-            result.flags && result.flags.length > 0 ? "🤖" : "⚡"
-          }`
-        );
-        console.log(
-          `├── Response Size: ${JSON.stringify(result).length} bytes`
-        );
-        console.log(`└── User: ${req.userId || "anonymous"}`);
-
-        const backgroundTime = performance.now() - backgroundStartTime;
-        console.log(
-          `[Controller] Text request processed in ${processingTime}ms - background completed in ${backgroundTime.toFixed(
-            2
-          )}ms`
-        );
+        logger.apiPerf(req.method, req.path, processingTime, res.statusCode, {
+          ai: aiUsed,
+          cache: cached,
+          blocked: blocked,
+        });
       });
     }
   ),
@@ -306,34 +255,16 @@ export const filterController = {
 
       // CORRECTED: ALL non-essential tasks after response is sent
       setImmediate(() => {
-        const backgroundStartTime = performance.now();
+        // Optimized image performance logging
+        const aiUsed = result.flags && result.flags.length > 0;
+        const cached = result.cached || false;
+        const blocked = result.blocked || false;
 
-        // Enhanced image performance logging
-        const requestId =
-          req.headers["x-request-id"] ||
-          `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-        console.log(`🚀 [Performance Summary] Image Request ${requestId}`);
-        console.log(`├── Total Time: ${processingTime}ms`);
-        console.log(`├── Core Processing: ${processingTime}ms (100%)`);
-        console.log(`├── Background Tasks: 0ms (0%)`);
-        console.log(`├── Cache Hit: ${result.cached ? "✅" : "❌"}`);
-        console.log(
-          `├── AI Used: ${
-            result.flags && result.flags.length > 0 ? "🤖" : "⚡"
-          }`
-        );
-        console.log(
-          `├── Response Size: ${JSON.stringify(result).length} bytes`
-        );
-        console.log(`└── User: ${req.userId || "anonymous"}`);
-
-        const backgroundTime = performance.now() - backgroundStartTime;
-        console.log(
-          `[Controller] Image request processed in ${processingTime}ms - background completed in ${backgroundTime.toFixed(
-            2
-          )}ms`
-        );
+        logger.apiPerf(req.method, req.path, processingTime, res.statusCode, {
+          ai: aiUsed,
+          cache: cached,
+          blocked: blocked,
+        });
       });
     }
   ),

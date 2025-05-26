@@ -34,7 +34,8 @@ export const LogLevel = {
   ERROR: 0,
   WARN: 1,
   INFO: 2,
-  DEBUG: 3,
+  PERF: 3,
+  DEBUG: 4,
 } as const;
 
 export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
@@ -103,6 +104,15 @@ export const logger = {
   },
 
   /**
+   * Log performance messages (optimized for monitoring)
+   */
+  perf: (message: string): void => {
+    if (currentLogLevel >= LogLevel.PERF) {
+      console.log(formatLogMessage("PERF", message, colors.magenta));
+    }
+  },
+
+  /**
    * Log debug messages (development only by default)
    */
   debug: (message: string, data?: any): void => {
@@ -111,6 +121,54 @@ export const logger = {
       if (data) {
         console.log(`${colors.dim}Debug data:${colors.reset}`, data);
       }
+    }
+  },
+
+  /**
+   * Log API performance in structured format
+   */
+  apiPerf: (
+    method: string,
+    path: string,
+    duration: number,
+    status: number,
+    extras?: { ai?: boolean; cache?: boolean; blocked?: boolean }
+  ): void => {
+    if (currentLogLevel >= LogLevel.PERF) {
+      const aiFlag = extras?.ai ? "AI:yes" : "AI:no";
+      const cacheFlag = extras?.cache ? "Cache:yes" : "Cache:no";
+      const blockFlag = extras?.blocked ? "Block:yes" : "Block:no";
+      const message = `${method} ${path} ${duration}ms ${aiFlag} ${cacheFlag} ${blockFlag}`;
+      console.log(formatLogMessage("PERF", message, colors.magenta));
+    }
+  },
+
+  /**
+   * Log AI service calls
+   */
+  aiCall: (
+    provider: string,
+    model: string,
+    duration: number,
+    decision: string
+  ): void => {
+    if (currentLogLevel >= LogLevel.INFO) {
+      const message = `AI ${provider}/${model} ${duration}ms -> ${decision}`;
+      console.log(formatLogMessage("AI", message, colors.blue));
+    }
+  },
+
+  /**
+   * Log content filtering decisions
+   */
+  filterDecision: (blocked: boolean, reason: string, flags: string[]): void => {
+    if (currentLogLevel >= LogLevel.INFO) {
+      const status = blocked ? "BLOCKED" : "ALLOWED";
+      const flagsStr = flags.length > 0 ? ` [${flags.join(", ")}]` : "";
+      const message = `${status}: ${reason}${flagsStr}`;
+      console.log(
+        formatLogMessage("FILTER", message, blocked ? colors.red : colors.green)
+      );
     }
   },
 

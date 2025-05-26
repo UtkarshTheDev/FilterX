@@ -7,6 +7,7 @@ import {
 } from "../utils/cache";
 import { statsIncrement } from "../utils/redis";
 import { trackApiResponseTime } from "../utils/apiResponseTime";
+import logger from "../utils/logger";
 
 // Create axios client with optimized settings
 const client = axios.create({
@@ -761,9 +762,6 @@ export const analyzeTextContent = async (
 
     // Create prompt for content moderation
     const systemPrompt = createSystemPrompt(filterConfig);
-    console.log(
-      `[AI Analysis] Using system prompt length: ${systemPrompt.length} chars`
-    );
 
     const messages = [
       {
@@ -780,9 +778,6 @@ export const analyzeTextContent = async (
     const apiCallStartTime = Date.now();
 
     // Make API request - optimized for speed
-    console.log(
-      `[AI Analysis] Sending request to Akash Chat API with ${messages.length} messages using model: ${selectedModel} (tier: ${modelTier})`
-    );
     const response = await client.post("/chat/completions", {
       model: selectedModel,
       messages: messages,
@@ -792,16 +787,12 @@ export const analyzeTextContent = async (
 
     // Calculate API call duration for monitoring
     const apiCallDuration = Date.now() - apiCallStartTime;
-    console.log(`[AI Analysis] API call completed in ${apiCallDuration}ms`);
 
     // Track API call performance IMMEDIATELY (not in background) to ensure stats are recorded
     try {
       await trackApiResponseTime("text", apiCallDuration, false, false);
-      console.log(
-        `[AI Analysis] API stats tracked successfully: ${apiCallDuration}ms`
-      );
     } catch (error) {
-      console.error("[AI Analysis] Error tracking API performance:", error);
+      logger.error("Error tracking API performance", error);
     }
 
     // Track additional stats in background (non-essential)
@@ -810,36 +801,20 @@ export const analyzeTextContent = async (
         await statsIncrement("ai:api:total_time", apiCallDuration);
         await statsIncrement("ai:api:call_count");
       } catch (error) {
-        console.error("[AI Analysis] Error tracking additional stats:", error);
+        logger.error("Error tracking additional AI stats", error);
       }
     });
 
     // Parse the response
     const aiResponse = response.data?.choices?.[0]?.message?.content || "";
-    console.log(
-      `[AI Analysis] Received response of length: ${aiResponse.length} chars`
-    );
-    console.log(
-      `[AI Analysis] Raw AI response preview: "${aiResponse.substring(
-        0,
-        100
-      )}..."`
-    );
-
     const result = parseAiResponse(aiResponse);
-    console.log(
-      `[AI Analysis] Parsed result - isViolation: ${
-        result.isViolation
-      }, flags: [${result.flags.join(", ")}]`
-    );
-    if (result.filteredContent) {
-      console.log(
-        `[AI Analysis] Generated filtered content: "${result.filteredContent.substring(
-          0,
-          50
-        )}..."`
-      );
-    }
+
+    // Log AI decision using structured logger
+    const decision = result.isViolation
+      ? `BLOCKED [${result.flags.join(", ")}]`
+      : "ALLOWED";
+    logger.aiCall("Akash", selectedModel, apiCallDuration, decision);
+    // Remove verbose filtered content logging
 
     // Cache the result for future use - using adaptive TTL
     // Only cache successful results with proper parsing - in background
@@ -847,27 +822,22 @@ export const analyzeTextContent = async (
       try {
         if (result.flags.indexOf("error") === -1) {
           await setCachedResponse(cacheKey, result);
-          console.log(`[AI Analysis] Cached AI analysis result for future use`);
         }
       } catch (error) {
-        console.error("[AI Analysis] Error caching result:", error);
+        logger.error("Error caching AI result", error);
       }
     });
 
     return result;
   } catch (error) {
-    console.error("Error calling Akash Chat API:", error);
+    logger.error("Error calling Akash Chat API", error);
 
     // Track API errors IMMEDIATELY (not in background) to ensure stats are recorded
     try {
       const errorDuration = 0; // We don't know the exact error duration
       await trackApiResponseTime("text", errorDuration, true, false);
-      console.log(`[AI Analysis] API error stats tracked successfully`);
     } catch (statsError) {
-      console.error(
-        "[AI Analysis] Error tracking API error stats:",
-        statsError
-      );
+      logger.error("Error tracking API error stats", statsError);
     }
 
     // Track additional error stats in background (non-essential)
@@ -875,10 +845,7 @@ export const analyzeTextContent = async (
       try {
         await statsIncrement("ai:api:errors");
       } catch (error) {
-        console.error(
-          "[AI Analysis] Error tracking additional error stats:",
-          error
-        );
+        logger.error("Error tracking additional error stats", error);
       }
     });
 
@@ -980,11 +947,7 @@ const formatMessageHistory = (
     });
   }
 
-  console.log(
-    `[AI Analysis] Optimized message history: Using ${
-      formattedHistory.length - 1
-    } messages out of ${oldMessages.length} total messages`
-  );
+  // Remove verbose message history logging
 
   return formattedHistory;
 };
@@ -1294,32 +1257,7 @@ const parseAiResponse = (
     const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
-      console.log(
-        `[AI Parsing] Found JSON in response: "${jsonMatch[0].substring(
-          0,
-          100
-        )}..."`
-      );
       const jsonData = JSON.parse(jsonMatch[0]);
-
-      // Log the parsed data
-      console.log(`[AI Parsing] Successfully parsed JSON response`);
-      console.log(`[AI Parsing] isViolation: ${jsonData.isViolation}`);
-      console.log(
-        `[AI Parsing] flags: ${JSON.stringify(jsonData.flags || [])}`
-      );
-      console.log(
-        `[AI Parsing] reason: "${
-          jsonData.reason?.substring(0, 100) || "N/A"
-        }..."`
-      );
-      if (jsonData.filteredContent) {
-        console.log(
-          `[AI Parsing] filteredContent: "${
-            jsonData.filteredContent?.substring(0, 100) || "N/A"
-          }..."`
-        );
-      }
 
       // Ensure reason doesn't contain sensitive information (shorten it if needed)
       const safeReason = ensureSafeReason(jsonData.reason || "");

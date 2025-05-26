@@ -18,6 +18,7 @@ import {
   generateRequestId,
   measureResponseSize,
 } from "../utils/performanceMonitor";
+import logger from "../utils/logger";
 
 // Default configuration - ALL FLAGS DEFAULT TO FALSE FOR SECURITY
 // This ensures that if no config is provided or if specific flags are missing,
@@ -83,13 +84,11 @@ export const filterContent = async (
     `[Filter] Starting content filter for user: ${userId} (${requestId})`
   );
 
-  // Debug logging in background to not block response
+  // Minimal debug logging in background
   setImmediate(() => {
-    console.log(
-      `[Filter] Request text (preview): "${
-        request.text?.substring(0, 30) || ""
-      }${request.text?.length > 30 ? "..." : ""}"${
-        request.image ? " with image" : ""
+    logger.debug(
+      `Filter request: ${request.text ? "text" : ""}${
+        request.image ? "+image" : ""
       }`
     );
   });
@@ -106,7 +105,7 @@ export const filterContent = async (
 
   // Validate input - this is essential and must run before response
   if (!request.text && !request.image) {
-    console.log(`[Filter] Invalid request: No content provided`);
+    logger.warn(`Filter request rejected: No content provided`);
     response.blocked = true;
     response.reason = "No content provided (text or image required)";
     return response;
@@ -121,10 +120,9 @@ export const filterContent = async (
   // Validate and set model tier
   const modelTier = validateModelTier(request.model);
 
-  // Log configuration and model tier in background
+  // Log model tier in background (remove config dump)
   setImmediate(() => {
-    console.log(`[Filter] Using configuration:`, JSON.stringify(config));
-    console.log(`[Filter] Using model tier: ${modelTier}`);
+    logger.debug(`Filter using model: ${modelTier}`);
   });
 
   // Limit old messages to 15 - must happen before processing
@@ -132,12 +130,7 @@ export const filterContent = async (
     ? request.oldMessages.slice(-15)
     : [];
 
-  // Log old messages in background
-  setImmediate(() => {
-    console.log(
-      `[Filter] Processing with ${oldMessages.length} previous messages for context`
-    );
-  });
+  // Remove verbose old messages logging
 
   // Generate a cache key - essential for cache checking
   const imageHash = request.image ? generateImageHash(request.image) : null;
@@ -533,10 +526,7 @@ export const filterContent = async (
 
     // Process image if provided and text wasn't blocked
     if (request.image && !response.blocked) {
-      // Log image processing in background
-      setImmediate(() => {
-        console.log(`[Filter] Processing image content`);
-      });
+      // Remove verbose image processing logging
 
       // Track image analysis for monitoring - in background
       setImmediate(async () => {
@@ -678,14 +668,9 @@ export const filterContent = async (
         request.image ? "image" : null
       );
 
-      console.log(
-        `[Filter] [PHASE2] Unified stats tracking completed for user ${userId}`
-      );
+      logger.debug(`Stats tracking completed for user ${userId}`);
     } catch (error) {
-      console.error(
-        "[Filter] [PHASE2] Error in unified stats tracking (non-blocking):",
-        error
-      );
+      logger.error("Error in unified stats tracking (non-blocking)", error);
       // CRITICAL: Background errors should NEVER affect the API response
       // The trackAllStatsUnified function now has its own fallback handling
     }
