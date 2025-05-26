@@ -101,6 +101,9 @@ export const filterContent = async (
     flags: [],
   };
 
+  // Track if AI was used for performance monitoring
+  let aiUsed = false;
+
   // Validate input - this is essential and must run before response
   if (!request.text && !request.image) {
     console.log(`[Filter] Invalid request: No content provided`);
@@ -245,31 +248,52 @@ export const filterContent = async (
             console.log("[Filter] Pre-screening allowed sensitive content");
           });
         } else {
-          // If pre-screening detected disallowed content, we can block immediately
-          // without needing to call the AI service
-          if (
-            prescreeningResult.flags.length > 0 &&
-            prescreeningResult.reason
-          ) {
-            // Log detection in background
+          // CRITICAL FIX: Enhanced pre-screening logic with confidence scoring
+          const hasViolations = prescreeningResult.flags.length > 0;
+          const isHighConfidence =
+            (prescreeningResult.confidence || 1.0) >= 0.8;
+          const shouldBlockImmediately =
+            prescreeningResult.shouldBlock ||
+            (hasViolations && isHighConfidence && prescreeningResult.reason);
+
+          if (shouldBlockImmediately && !config.returnFilteredMessage) {
+            // Pre-screening is confident - block immediately without AI
             setImmediate(() => {
               console.log(
                 `[Filter] Pre-screening detected disallowed content: ${prescreeningResult.flags.join(
                   ", "
-                )}, blocking immediately`
+                )}, blocking immediately (confidence: ${
+                  prescreeningResult.confidence || 1.0
+                })`
               );
             });
 
-            // Block the content based on pre-screening
             response.blocked = true;
             response.flags = prescreeningResult.flags;
             response.reason = prescreeningResult.reason;
 
-            // If filtered message was requested, create a simple filtered version
-            if (config.returnFilteredMessage) {
-              // For phone numbers, replace with asterisks
+            setImmediate(() => {
+              console.log("[Filter] Pre-screening blocked content");
+            });
+          } else if (hasViolations && config.returnFilteredMessage) {
+            // Pre-screening found violations but user wants filtered message
+            // For simple patterns like email/phone, we can filter without AI
+            if (
+              prescreeningResult.flags.includes("phone_number") ||
+              prescreeningResult.flags.includes("email_address")
+            ) {
+              setImmediate(() => {
+                console.log(
+                  `[Filter] Pre-screening detected simple pattern, filtering without AI`
+                );
+              });
+
+              response.blocked = true;
+              response.flags = prescreeningResult.flags;
+              response.reason = prescreeningResult.reason;
+
+              // Create simple filtered version
               if (prescreeningResult.flags.includes("phone_number")) {
-                // Find phone number pattern
                 const phoneMatch = request.text.match(PATTERNS.PHONE.STANDARD);
                 if (phoneMatch && phoneMatch[0]) {
                   const asterisks = "*".repeat(phoneMatch[0].length);
@@ -280,16 +304,121 @@ export const filterContent = async (
                 } else {
                   response.filteredMessage = request.text;
                 }
+              } else if (prescreeningResult.flags.includes("email_address")) {
+                const emailMatch = request.text.match(PATTERNS.EMAIL.STANDARD);
+                if (emailMatch && emailMatch[0]) {
+                  const asterisks = "*".repeat(emailMatch[0].length);
+                  response.filteredMessage = request.text.replace(
+                    emailMatch[0],
+                    asterisks
+                  );
+                } else {
+                  response.filteredMessage = request.text;
+                }
               } else {
-                // For other types, just use original text
-                response.filteredMessage = request.text;
+                response.filteredMessage =
+                  "[Content filtered due to policy violation]";
+              }
+
+              setImmediate(() => {
+                console.log(
+                  "[Filter] Pre-screening blocked content with simple filtering"
+                );
+              });
+            } else {
+              // Complex violations need AI for proper filtering
+              setImmediate(() => {
+                console.log(
+                  `[Filter] Pre-screening detected complex violations, calling AI for proper filtering`
+                );
+              });
+
+              const aiStartTime = Date.now();
+              aiUsed = true;
+
+              try {
+                const aiResult = await analyzeTextContentWithProvider(
+                  request.text,
+                  oldMessages,
+                  config,
+                  modelTier
+                );
+
+                setImmediate(() => {
+                  const aiProcessingTime = Date.now() - aiStartTime;
+                  console.log(
+                    `[Filter] AI filtering completed in ${aiProcessingTime}ms`
+                  );
+                });
+
+                response.blocked = aiResult.isViolation;
+                response.flags = [
+                  ...new Set([...prescreeningResult.flags, ...aiResult.flags]),
+                ];
+                response.reason = aiResult.reason || prescreeningResult.reason;
+
+                if (aiResult.filteredContent) {
+                  response.filteredMessage = aiResult.filteredContent;
+                } else {
+                  response.filteredMessage =
+                    "[Content filtered due to policy violation]";
+                }
+              } catch (aiError) {
+                console.error("[Filter] AI filtering failed:", aiError);
+                response.blocked = true;
+                response.flags = prescreeningResult.flags;
+                response.reason = prescreeningResult.reason;
+                response.filteredMessage =
+                  "[Content filtered due to policy violation]";
               }
             }
-
-            // We're no longer tracking prescreening stats
+          } else if (hasViolations && !isHighConfidence) {
+            // Pre-screening found violations but low confidence - call AI for accuracy
             setImmediate(() => {
-              console.log("[Filter] Pre-screening blocked content");
+              console.log(
+                `[Filter] Pre-screening uncertain (confidence: ${
+                  prescreeningResult.confidence || 1.0
+                }), calling AI for accuracy`
+              );
             });
+
+            const aiStartTime = Date.now();
+            aiUsed = true;
+
+            try {
+              const aiResult = await analyzeTextContentWithProvider(
+                request.text,
+                oldMessages,
+                config,
+                modelTier
+              );
+
+              setImmediate(() => {
+                const aiProcessingTime = Date.now() - aiStartTime;
+                console.log(
+                  `[Filter] AI analysis completed in ${aiProcessingTime}ms`
+                );
+              });
+
+              response.blocked = aiResult.isViolation;
+              response.flags = [
+                ...new Set([...prescreeningResult.flags, ...aiResult.flags]),
+              ];
+              response.reason = aiResult.reason || prescreeningResult.reason;
+
+              if (config.returnFilteredMessage && aiResult.filteredContent) {
+                response.filteredMessage = aiResult.filteredContent;
+              }
+            } catch (aiError) {
+              console.error("[Filter] AI analysis failed:", aiError);
+              response.blocked = true;
+              response.flags = prescreeningResult.flags;
+              response.reason = prescreeningResult.reason;
+              if (config.returnFilteredMessage) {
+                response.filteredMessage =
+                  "[Content filtered due to policy violation]";
+              }
+            }
           } else {
             // Log pre-screening result in background
             setImmediate(() => {
@@ -306,6 +435,7 @@ export const filterContent = async (
             });
 
             const aiStartTime = Date.now();
+            aiUsed = true; // Mark that AI is being used
 
             try {
               // AI analysis is essential and must run before response
@@ -532,16 +662,6 @@ export const filterContent = async (
   );
 
   // PERFORMANCE OPTIMIZATION: Mark core processing complete
-  let aiUsed = false;
-  // Determine if AI was used based on response characteristics
-  if (
-    response.reason.includes("AI") ||
-    response.reason.includes("analysis") ||
-    (response.flags.length > 0 && !response.reason.includes("pre-screening"))
-  ) {
-    aiUsed = true;
-  }
-
   performanceMonitor.markCoreComplete(requestId, isCached, aiUsed);
 
   // PHASE 2 OPTIMIZATION: Unified Background Stats Pipeline

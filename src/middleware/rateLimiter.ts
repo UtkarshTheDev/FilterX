@@ -134,15 +134,19 @@ export const createRateLimiter = (
           throw new AppError("Rate limit exceeded. Try again later.", 429);
         }
 
-        // PHASE 1: Probabilistic Redis sync (only when needed)
+        // CRITICAL FIX: Truly non-blocking Redis sync
         if (!circuitBreaker.isOpen && shouldSyncWithRedis(localEntry)) {
-          setImmediate(async () => {
+          // Fire and forget - completely detached from request processing
+          process.nextTick(async () => {
+            const syncStartTime = performance.now();
             try {
               await redisClient.incr(key);
               localEntry.lastRedisSync = now;
-              const duration = Math.round(performance.now() - startTime);
+              const syncDuration = Math.round(
+                performance.now() - syncStartTime
+              );
               console.debug(
-                `[RateLimit] Probabilistic Redis sync completed in ${duration}ms`
+                `[RateLimit] Probabilistic Redis sync completed in ${syncDuration}ms (background)`
               );
             } catch (error) {
               handleRedisFailure(error);

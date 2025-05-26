@@ -37,23 +37,29 @@ const getModelForTier = (tier: string): string => {
   }
 };
 
-// Pre-compiled regex patterns for maximum performance
+// ENHANCED: Pre-compiled regex patterns for maximum performance and accuracy
 export const PATTERNS = {
-  // Phone patterns
+  // Phone patterns - Enhanced for better detection
   PHONE: {
-    // International and domestic formats
+    // International and domestic formats - More precise
     STANDARD:
-      /\b(?:\+?(\d{1,3}))?[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}\b/,
-    // Spelled out numbers
+      /\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{3}[-.\s]?\d{3}[-.\s]?\d{4}|\+?\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9})\b/,
+    // Spelled out numbers - More accurate
     SPELLED:
-      /\b(zero|one|two|three|four|five|six|seven|eight|nine)(\s+(zero|one|two|three|four|five|six|seven|eight|nine)){5,}\b/i,
+      /\b(zero|one|two|three|four|five|six|seven|eight|nine)(\s+(zero|one|two|three|four|five|six|seven|eight|nine)){6,}\b/i,
+    // Common phone number indicators
+    INDICATORS:
+      /\b(call me|my number|phone|text me|reach me at|my cell|contact me on|dial|ring me|my mobile)\b/i,
   },
-  // Email patterns
+  // Email patterns - Enhanced detection
   EMAIL: {
-    // Standard format
+    // Standard format - More comprehensive
     STANDARD: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/,
-    // Obfuscated format
+    // Obfuscated format - Enhanced
     OBFUSCATED: /\b\S+\s+(?:at|[@])\s+\S+\s+(?:dot|[.])\s+\S+\b/i,
+    // Email indicators
+    INDICATORS:
+      /\b(email me|my email|contact me|send me mail|drop me a line|shoot me an email|write to me at)\b/i,
   },
   // Physical information
   PHYSICAL: {
@@ -246,19 +252,25 @@ const BENIGN_PHRASES = [
 ];
 
 /**
- * Enhanced pre-screen text to determine if AI analysis is needed
- * Uses optimized patterns and intent detection to catch sensitive information
- * while maintaining high performance
+ * ENHANCED: Powerful pre-screen text to determine if AI analysis is needed
+ * Uses optimized patterns, confidence scoring, and intelligent fallback to AI
+ * Features: High accuracy, confusion detection, smart AI bypass
  *
  * @param text Text to pre-screen
  * @param filterConfig Configuration for content filtering
- * @returns Object with result and detected flags
+ * @returns Object with result, detected flags, confidence score, and reason
  */
 export const isAIReviewNeeded = (
   text: string,
   filterConfig: Record<string, boolean> = {}
-): { needsReview: boolean; flags: string[]; reason?: string } => {
-  // Track flags and reasons
+): {
+  needsReview: boolean;
+  flags: string[];
+  reason?: string;
+  confidence?: number; // 0-1 scale, 1 = very confident, 0 = uncertain
+  shouldBlock?: boolean; // True if pre-screening is confident enough to block
+} => {
+  // Track flags, reasons, and confidence
   const flags: string[] = [];
   let detectionReason: string | undefined;
 
@@ -279,7 +291,12 @@ export const isAIReviewNeeded = (
     setImmediate(() =>
       console.log(`[AI Pre-screen] Empty text, skipping AI review`)
     );
-    return { needsReview: false, flags: [] };
+    return {
+      needsReview: false,
+      flags: [],
+      confidence: 1.0,
+      shouldBlock: false,
+    };
   }
 
   // If text is very short (less than 3 words), likely no sensitive content
@@ -290,7 +307,12 @@ export const isAIReviewNeeded = (
         `[AI Pre-screen] Text too short (${wordCount} words), skipping AI review`
       )
     );
-    return { needsReview: false, flags: [] };
+    return {
+      needsReview: false,
+      flags: [],
+      confidence: 1.0,
+      shouldBlock: false,
+    };
   }
 
   // Normalize text for consistent matching
@@ -319,7 +341,13 @@ export const isAIReviewNeeded = (
           );
           flags.push("phone_number");
           detectionReason = "Contains a phone number";
-          return { needsReview: true, flags, reason: detectionReason };
+          return {
+            needsReview: true,
+            flags,
+            reason: detectionReason,
+            confidence: 0.95,
+            shouldBlock: true,
+          };
         }
 
         // Spelled out numbers check
@@ -464,7 +492,13 @@ export const isAIReviewNeeded = (
       );
       flags.push("email_address");
       detectionReason = "Contains an email address";
-      return { needsReview: true, flags, reason: detectionReason };
+      return {
+        needsReview: true,
+        flags,
+        reason: detectionReason,
+        confidence: 0.98,
+        shouldBlock: true,
+      };
     }
 
     // Check for obfuscated email patterns (e.g., user at domain dot com)
