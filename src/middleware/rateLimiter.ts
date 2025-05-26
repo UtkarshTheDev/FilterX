@@ -3,34 +3,91 @@ import { redisClient } from "../utils/redis";
 import { config } from "../config";
 import { AppError } from "./errorHandler";
 
-// Local memory rate limit cache to avoid Redis calls
+// PHASE 1 OPTIMIZATION: Enhanced local cache with circuit breaker
 interface RateLimitCacheEntry {
   count: number;
   expires: number;
+  lastRedisSync: number; // Track when we last synced with Redis
 }
 
-// In-memory cache for rate limits (to minimize Redis calls)
+// Circuit breaker for Redis failures
+interface CircuitBreakerState {
+  failures: number;
+  lastFailure: number;
+  isOpen: boolean;
+}
+
+// In-memory cache for rate limits (OPTIMIZED: 5-minute TTL, probabilistic sync)
 const rateLimitCache: Map<string, RateLimitCacheEntry> = new Map();
 
-// Cleanup interval for the local cache (run every minute)
+// Circuit breaker state for Redis operations
+const circuitBreaker: CircuitBreakerState = {
+  failures: 0,
+  lastFailure: 0,
+  isOpen: false,
+};
+
+// PHASE 1: Enhanced cleanup with circuit breaker reset
 setInterval(() => {
   const now = Date.now();
   let expired = 0;
+
+  // Clean up expired entries
   for (const [key, entry] of rateLimitCache.entries()) {
     if (entry.expires < now) {
       rateLimitCache.delete(key);
       expired++;
     }
   }
+
+  // Reset circuit breaker if enough time has passed (30 seconds)
+  if (circuitBreaker.isOpen && now - circuitBreaker.lastFailure > 30000) {
+    circuitBreaker.isOpen = false;
+    circuitBreaker.failures = 0;
+    console.log("[RateLimit] Circuit breaker reset - Redis operations resumed");
+  }
+
   if (expired > 0) {
     console.debug(
-      `Cleaned up ${expired} expired rate limit entries from local cache`
+      `[RateLimit] Cleaned up ${expired} expired entries, circuit breaker: ${
+        circuitBreaker.isOpen ? "OPEN" : "CLOSED"
+      }`
     );
   }
 }, 60 * 1000);
 
+// PHASE 1: Helper function to handle Redis failures with circuit breaker
+const handleRedisFailure = (error: any) => {
+  circuitBreaker.failures++;
+  circuitBreaker.lastFailure = Date.now();
+
+  // Open circuit breaker after 3 failures
+  if (circuitBreaker.failures >= 3) {
+    circuitBreaker.isOpen = true;
+    console.warn(
+      "[RateLimit] Circuit breaker OPENED - Redis operations suspended"
+    );
+  }
+
+  console.error("[RateLimit] Redis operation failed:", error);
+};
+
+// PHASE 1: Probabilistic Redis sync (only sync every 10th request)
+const shouldSyncWithRedis = (entry: RateLimitCacheEntry): boolean => {
+  const now = Date.now();
+
+  // Always sync if we haven't synced in the last 30 seconds
+  if (now - entry.lastRedisSync > 30000) {
+    return true;
+  }
+
+  // Otherwise, 10% probability of sync
+  return Math.random() < 0.1;
+};
+
 /**
- * Create a high-performance rate limiter with local caching
+ * PHASE 1 OPTIMIZED: High-performance rate limiter with enhanced local caching
+ * Features: 5-minute local cache, probabilistic Redis sync, circuit breaker
  * @param prefix Key prefix for Redis
  * @param limit Number of requests allowed per window
  * @param windowMs Window size in milliseconds
@@ -53,7 +110,7 @@ export const createRateLimiter = (
       // Set headers immediately (can be overwritten later if needed)
       res.setHeader("X-RateLimit-Limit", limit);
 
-      // Check local cache first (ultra fast)
+      // PHASE 1: Check local cache first (ultra fast, 5-minute TTL)
       const localEntry = rateLimitCache.get(key);
       const now = Date.now();
 
@@ -77,62 +134,114 @@ export const createRateLimiter = (
           throw new AppError("Rate limit exceeded. Try again later.", 429);
         }
 
-        // Update Redis in the background (fire and forget)
-        setImmediate(async () => {
-          try {
-            await redisClient.incr(key);
-            const duration = Math.round(performance.now() - startTime);
-            console.debug(
-              `Rate limit check from local cache completed in ${duration}ms`
-            );
-          } catch (error) {
-            console.error("Background Redis rate limit update failed:", error);
-          }
-        });
+        // PHASE 1: Probabilistic Redis sync (only when needed)
+        if (!circuitBreaker.isOpen && shouldSyncWithRedis(localEntry)) {
+          setImmediate(async () => {
+            try {
+              await redisClient.incr(key);
+              localEntry.lastRedisSync = now;
+              const duration = Math.round(performance.now() - startTime);
+              console.debug(
+                `[RateLimit] Probabilistic Redis sync completed in ${duration}ms`
+              );
+            } catch (error) {
+              handleRedisFailure(error);
+            }
+          });
+        }
 
+        const duration = Math.round(performance.now() - startTime);
+        console.debug(`[RateLimit] Local cache hit completed in ${duration}ms`);
         return next();
       }
 
-      // Not in local cache, need to check Redis
-      // Get the current count
-      const currentCount = await redisClient.incr(key);
+      // PHASE 1: Not in local cache - check Redis with circuit breaker
+      if (circuitBreaker.isOpen) {
+        // Circuit breaker is open - use local-only mode with generous limits
+        console.warn(
+          "[RateLimit] Circuit breaker OPEN - using local-only mode"
+        );
 
-      // Set expiry on first request
-      if (currentCount === 1) {
-        await redisClient.expire(key, Math.ceil(windowMs / 1000));
-      }
+        // Create a temporary local entry with 5-minute TTL
+        const tempEntry: RateLimitCacheEntry = {
+          count: 1,
+          expires: now + 300000, // 5 minutes
+          lastRedisSync: 0,
+        };
 
-      // Get the TTL for the retry header and local caching
-      const ttl = await redisClient.ttl(key);
+        rateLimitCache.set(key, tempEntry);
+        res.setHeader("X-RateLimit-Remaining", Math.max(0, limit - 1));
 
-      // Update local cache
-      rateLimitCache.set(key, {
-        count: currentCount,
-        expires: now + ttl * 1000,
-      });
-
-      // Set headers
-      res.setHeader("X-RateLimit-Remaining", Math.max(0, limit - currentCount));
-
-      // If over limit, send error
-      if (currentCount > limit) {
-        // Set retry header (in seconds)
-        res.setHeader("Retry-After", ttl);
-        throw new AppError("Rate limit exceeded. Try again later.", 429);
-      }
-
-      // Log performance in background
-      setImmediate(() => {
         const duration = Math.round(performance.now() - startTime);
-        console.debug(`Rate limit check from Redis completed in ${duration}ms`);
-      });
+        console.debug(
+          `[RateLimit] Circuit breaker mode completed in ${duration}ms`
+        );
+        return next();
+      }
 
-      next();
+      try {
+        // PHASE 1: Optimized Redis operations with timeout
+        const redisTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Redis timeout")), 2000)
+        );
+
+        const redisOps = Promise.all([
+          redisClient.incr(key),
+          redisClient.expire(key, Math.ceil(windowMs / 1000), "NX"), // Only set if not exists
+          redisClient.ttl(key),
+        ]);
+
+        const [currentCount, , ttl] = (await Promise.race([
+          redisOps,
+          redisTimeout,
+        ])) as [number, any, number];
+
+        // PHASE 1: Update local cache with 5-minute TTL (extended from 1 minute)
+        const cacheExpiry = now + Math.min(300000, ttl * 1000); // 5 minutes or Redis TTL, whichever is smaller
+        rateLimitCache.set(key, {
+          count: currentCount,
+          expires: cacheExpiry,
+          lastRedisSync: now,
+        });
+
+        // Set headers
+        res.setHeader(
+          "X-RateLimit-Remaining",
+          Math.max(0, limit - currentCount)
+        );
+
+        // If over limit, send error
+        if (currentCount > limit) {
+          res.setHeader("Retry-After", Math.max(1, ttl));
+          throw new AppError("Rate limit exceeded. Try again later.", 429);
+        }
+
+        const duration = Math.round(performance.now() - startTime);
+        console.debug(`[RateLimit] Redis check completed in ${duration}ms`);
+        next();
+      } catch (redisError) {
+        // PHASE 1: Handle Redis failure gracefully
+        handleRedisFailure(redisError);
+
+        // Fallback to local-only mode for this request
+        const fallbackEntry: RateLimitCacheEntry = {
+          count: 1,
+          expires: now + 300000, // 5 minutes
+          lastRedisSync: 0,
+        };
+
+        rateLimitCache.set(key, fallbackEntry);
+        res.setHeader("X-RateLimit-Remaining", Math.max(0, limit - 1));
+
+        const duration = Math.round(performance.now() - startTime);
+        console.warn(`[RateLimit] Redis fallback completed in ${duration}ms`);
+        next();
+      }
     } catch (error) {
       if (error instanceof AppError) {
         next(error);
       } else {
-        console.error("Rate limiting error:", error);
+        console.error("[RateLimit] Unexpected error:", error);
         next(new AppError("Failed to check rate limit", 500));
       }
     }

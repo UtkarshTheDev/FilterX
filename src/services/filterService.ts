@@ -7,7 +7,11 @@ import {
   getCachedResponse,
   setCachedResponse,
 } from "../utils/cache";
-import { trackFilterRequest, trackApiResponseTime } from "./statsService";
+import {
+  trackFilterRequest,
+  trackApiResponseTime,
+  trackAllStatsUnified,
+} from "./statsService";
 import { statsIncrement } from "../utils/redis";
 import {
   performanceMonitor,
@@ -540,107 +544,76 @@ export const filterContent = async (
 
   performanceMonitor.markCoreComplete(requestId, isCached, aiUsed);
 
-  // PERFORMANCE OPTIMIZATION: Move ALL stats tracking to background
-  // This is the critical optimization that prevents blocking the API response
+  // PHASE 2 OPTIMIZATION: Unified Background Stats Pipeline
+  // Batch ALL Redis operations into a single pipeline for maximum efficiency
   setImmediate(async () => {
     try {
-      // Track API performance for ALL filter requests (regardless of AI usage)
-      const apiTrackingPromises = [];
-
-      // Track text API performance if text was processed
-      if (request.text) {
-        apiTrackingPromises.push(
-          trackApiResponseTime("text", processingTime, false, isCached)
-            .then(() => {
-              console.log(
-                `[Filter] Text API stats tracked: ${processingTime}ms, cached: ${isCached}`
-              );
-            })
-            .catch((error) => {
-              console.error(
-                "[Filter] Error tracking text API performance:",
-                error
-              );
-            })
-        );
-      }
-
-      // Track image API performance if image was processed
-      if (request.image) {
-        apiTrackingPromises.push(
-          trackApiResponseTime("image", processingTime, false, isCached)
-            .then(() => {
-              console.log(
-                `[Filter] Image API stats tracked: ${processingTime}ms, cached: ${isCached}`
-              );
-            })
-            .catch((error) => {
-              console.error(
-                "[Filter] Error tracking image API performance:",
-                error
-              );
-            })
-        );
-      }
-
-      // Track filter request stats
-      const filterTrackingPromise = trackFilterRequest(
+      await trackAllStatsUnified(
         userId,
         response.blocked,
         response.flags,
         processingTime,
-        isCached
-      )
-        .then(() => {
-          console.log(
-            `[Filter] Stats tracked successfully for user ${userId}, cached: ${isCached}`
-          );
-        })
-        .catch((error) => {
-          console.error("[Filter] Error tracking request stats:", error);
-        });
-
-      // Execute all stats tracking in parallel (background)
-      await Promise.allSettled([...apiTrackingPromises, filterTrackingPromise]);
+        isCached,
+        request.text ? "text" : null,
+        request.image ? "image" : null
+      );
 
       console.log(
-        `[Filter] Background stats tracking completed for user ${userId}`
+        `[Filter] [PHASE2] Unified stats tracking completed for user ${userId}`
       );
     } catch (error) {
       console.error(
-        "[Filter] Critical error in background stats tracking:",
+        "[Filter] [PHASE2] Error in unified stats tracking (non-blocking):",
+        error
+      );
+      // CRITICAL: Background errors should NEVER affect the API response
+      // The trackAllStatsUnified function now has its own fallback handling
+    }
+  });
+
+  // PHASE 2 OPTIMIZATION: Parallel Background Operations
+  // Run cache operations in parallel with stats for maximum efficiency
+  setImmediate(async () => {
+    try {
+      const backgroundTasks = [];
+
+      // Task: Cache writing (if needed) - run in parallel with stats
+      if (!isCached) {
+        backgroundTasks.push(
+          setCachedResponse(cacheKey, response)
+            .then(() => {
+              console.log(
+                `[Filter] [PHASE2] Cached final result for key: ${cacheKey.substring(
+                  0,
+                  10
+                )}...`
+              );
+            })
+            .catch((error) => {
+              console.error("[Filter] Error in cache processing:", error);
+            })
+        );
+      }
+
+      // Execute cache operations in parallel (stats already running in separate setImmediate)
+      const startBackgroundTime = Date.now();
+      await Promise.allSettled(backgroundTasks);
+      const backgroundTime = Date.now() - startBackgroundTime;
+
+      console.log(
+        `[Filter] [PHASE2] Cache background processing completed in ${backgroundTime}ms`
+      );
+
+      // Complete performance monitoring
+      const responseSize = measureResponseSize(response);
+      performanceMonitor.completeRequest(requestId, responseSize);
+    } catch (error) {
+      console.error(
+        "[Filter] Critical error in cache background processing:",
         error
       );
       // Background errors should not affect the API response
     }
-  });
-
-  // PERFORMANCE OPTIMIZATION: Consolidate all background operations
-  // Cache writing is already backgrounded in setCachedResponse, but we ensure it here
-  setImmediate(async () => {
-    try {
-      // Cache the result if not already cached
-      if (!isCached) {
-        // setCachedResponse is already optimized to run in background via setImmediate
-        // We call it here to ensure it runs after the response is sent
-        await setCachedResponse(cacheKey, response);
-        console.log(
-          `[Filter] Cached final result for key: ${cacheKey.substring(
-            0,
-            10
-          )}...`
-        );
-      }
-
-      console.log(`[Filter] Background cache processing complete`);
-    } catch (error) {
-      console.error("[Filter] Error in background cache processing:", error);
-      // Cache errors should not affect the API response
-    }
-
-    // PERFORMANCE OPTIMIZATION: Complete performance monitoring
-    const responseSize = measureResponseSize(response);
-    performanceMonitor.completeRequest(requestId, responseSize);
   });
 
   return response;

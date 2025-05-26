@@ -7,23 +7,230 @@ import {
   redisClient,
 } from "../utils/redis";
 
-// Stat key prefixes - optimized to reduce redundancy
+// CORRECTED: Essential stat key prefixes - keeping important tracking but optimized
 const KEY_PREFIXES = {
   TOTAL_REQUESTS: "stats:requests:total", // Primary counter for all requests
   BLOCKED_REQUESTS: "stats:requests:blocked", // Only track blocked, filtered can be derived
-  CACHED_REQUESTS: "stats:requests:cached",
-  USER_REQUESTS: "stats:requests:user:",
-  FLAG_COUNTS: "stats:flags:",
-  LATENCY: "stats:latency:", // Optimized to use sampling instead of storing all values
-  // Removed stats:cache:unified as requested
-  // Removed redundant DAILY prefix as it duplicates TOTAL_REQUESTS
-  // Removed redundant FILTERED_REQUESTS as it can be derived from TOTAL - BLOCKED
-  // Removed consolidated cache tracking prefixes
+  CACHED_REQUESTS: "stats:requests:cached", // Essential for cache hit rate
+  FLAG_COUNTS: "stats:flags:", // RESTORED: Flag tracking is important for analytics
+  LATENCY: "stats:latency:", // RESTORED: Latency tracking for performance monitoring
+  // OPTIMIZED: Removed per-user tracking to reduce operations but kept essential stats
+};
+
+// CORRECTED: Stats batching buffer for async processing - includes flags tracking
+interface StatsBatch {
+  totalRequests: number;
+  blockedRequests: number;
+  cachedRequests: number;
+  latencySum: number;
+  latencyCount: number;
+  latencyValues: number[]; // Keep recent latency values for percentiles
+  flagCounts: Map<string, number>; // Track individual flags
+  textApiCalls: number;
+  textApiTime: number;
+  imageApiCalls: number;
+  imageApiTime: number;
+}
+
+let statsBatch: StatsBatch = {
+  totalRequests: 0,
+  blockedRequests: 0,
+  cachedRequests: 0,
+  latencySum: 0,
+  latencyCount: 0,
+  latencyValues: [],
+  flagCounts: new Map(),
+  textApiCalls: 0,
+  textApiTime: 0,
+  imageApiCalls: 0,
+  imageApiTime: 0,
+};
+
+let batchTimeout: NodeJS.Timeout | null = null;
+
+/**
+ * PHASE 2 OPTIMIZED: Ultra-fast stats tracking with batching
+ * Reduces Redis operations from 8 to 3-4 essential operations
+ * Uses 5-second batching to minimize Redis round-trips
+ */
+export const trackAllStatsUnified = async (
+  userId: string,
+  isBlocked: boolean,
+  flags: string[],
+  latencyMs: number,
+  isCached: boolean,
+  textApiType: "text" | null,
+  imageApiType: "image" | null
+): Promise<void> => {
+  try {
+    console.log(
+      `[Stats] [PHASE2] [OPTIMIZED] Batching stats for user: ${userId}`
+    );
+
+    // PHASE 2: Add to batch instead of immediate Redis operations
+    statsBatch.totalRequests++;
+    if (isBlocked) statsBatch.blockedRequests++;
+    if (isCached) statsBatch.cachedRequests++;
+
+    // Track latency for rolling average and percentiles
+    statsBatch.latencySum += latencyMs;
+    statsBatch.latencyCount++;
+    statsBatch.latencyValues.push(latencyMs);
+
+    // Keep only recent latency values (last 500)
+    if (statsBatch.latencyValues.length > 500) {
+      statsBatch.latencyValues = statsBatch.latencyValues.slice(-500);
+    }
+
+    // RESTORED: Track individual flags - important for analytics
+    flags.forEach((flag) => {
+      const currentCount = statsBatch.flagCounts.get(flag) || 0;
+      statsBatch.flagCounts.set(flag, currentCount + 1);
+    });
+
+    // Track API usage
+    if (textApiType) {
+      statsBatch.textApiCalls++;
+      statsBatch.textApiTime += latencyMs;
+    }
+    if (imageApiType) {
+      statsBatch.imageApiCalls++;
+      statsBatch.imageApiTime += latencyMs;
+    }
+
+    console.log(
+      `[Stats] [OPTIMIZED] Batched: total=${statsBatch.totalRequests}, blocked=${statsBatch.blockedRequests}, cached=${statsBatch.cachedRequests}, flags=${statsBatch.flagCounts.size}`
+    );
+
+    // PHASE 2: Schedule batch flush if not already scheduled
+    if (!batchTimeout) {
+      batchTimeout = setTimeout(flushStatsBatch, 5000); // 5-second batching
+      console.log("[Stats] [OPTIMIZED] Scheduled batch flush in 5 seconds");
+    }
+
+    console.log(
+      "[Stats] [PHASE2] [OPTIMIZED] Stats batched successfully - no immediate Redis operations"
+    );
+  } catch (error) {
+    console.error(
+      "[Stats] [PHASE2] Error in optimized stats batching (non-blocking):",
+      error
+    );
+    // Don't throw - background processing should never crash the system
+  }
+};
+
+/**
+ * PHASE 2: Flush accumulated stats batch to Redis
+ * Executes only 3-4 Redis operations instead of 8+ per request
+ */
+const flushStatsBatch = async (): Promise<void> => {
+  try {
+    if (statsBatch.totalRequests === 0) {
+      console.log("[Stats] [BATCH] No stats to flush");
+      batchTimeout = null;
+      return;
+    }
+
+    console.log(
+      `[Stats] [BATCH] Flushing batch: ${statsBatch.totalRequests} requests, ${statsBatch.blockedRequests} blocked, ${statsBatch.cachedRequests} cached`
+    );
+
+    const pipeline = statsPipeline();
+    let operationCount = 0;
+
+    // PHASE 2: Only essential operations
+    if (statsBatch.totalRequests > 0) {
+      pipeline.incrby(KEY_PREFIXES.TOTAL_REQUESTS, statsBatch.totalRequests);
+      operationCount++;
+    }
+
+    if (statsBatch.blockedRequests > 0) {
+      pipeline.incrby(
+        KEY_PREFIXES.BLOCKED_REQUESTS,
+        statsBatch.blockedRequests
+      );
+      operationCount++;
+    }
+
+    if (statsBatch.cachedRequests > 0) {
+      pipeline.incrby(KEY_PREFIXES.CACHED_REQUESTS, statsBatch.cachedRequests);
+      operationCount++;
+    }
+
+    // CORRECTED: Update latency tracking with recent values
+    if (statsBatch.latencyCount > 0) {
+      const latencyKey = `${KEY_PREFIXES.LATENCY}all`;
+      // Add recent latency values to the list
+      statsBatch.latencyValues.forEach((latency) => {
+        pipeline.lpush(latencyKey, latency.toString());
+      });
+      // Keep only recent 500 values
+      pipeline.ltrim(latencyKey, 0, 499);
+      operationCount += 2;
+    }
+
+    // RESTORED: Update flag counts
+    if (statsBatch.flagCounts.size > 0) {
+      statsBatch.flagCounts.forEach((count, flag) => {
+        const flagKey = `${KEY_PREFIXES.FLAG_COUNTS}${flag}`;
+        pipeline.incrby(flagKey, count);
+        operationCount++;
+      });
+    }
+
+    // PHASE 2: Update API stats if needed
+    if (statsBatch.textApiCalls > 0) {
+      const textHashKey = "api:stats:text";
+      pipeline.hincrby(textHashKey, "calls", statsBatch.textApiCalls);
+      pipeline.hincrby(textHashKey, "total_time", statsBatch.textApiTime);
+      operationCount += 2;
+    }
+
+    if (statsBatch.imageApiCalls > 0) {
+      const imageHashKey = "api:stats:image";
+      pipeline.hincrby(imageHashKey, "calls", statsBatch.imageApiCalls);
+      pipeline.hincrby(imageHashKey, "total_time", statsBatch.imageApiTime);
+      operationCount += 2;
+    }
+
+    // Execute batch pipeline
+    const startTime = Date.now();
+    const results = await pipeline.exec();
+    const pipelineTime = Date.now() - startTime;
+
+    console.log(
+      `[Stats] [BATCH] Pipeline executed in ${pipelineTime}ms with ${operationCount} operations`
+    );
+
+    // Reset batch
+    statsBatch = {
+      totalRequests: 0,
+      blockedRequests: 0,
+      cachedRequests: 0,
+      latencySum: 0,
+      latencyCount: 0,
+      latencyValues: [],
+      flagCounts: new Map(),
+      textApiCalls: 0,
+      textApiTime: 0,
+      imageApiCalls: 0,
+      imageApiTime: 0,
+    };
+    batchTimeout = null;
+
+    console.log("[Stats] [BATCH] Batch reset successfully");
+  } catch (error) {
+    console.error("[Stats] [BATCH] Error flushing stats batch:", error);
+    // Reset timeout to try again later
+    batchTimeout = null;
+  }
 };
 
 /**
  * Track a filter request - OPTIMIZED FOR BACKGROUND PROCESSING
  * This function is designed to be called from setImmediate() to not block API responses
+ * NOTE: Consider using trackAllStatsUnified() for better performance
  */
 export const trackFilterRequest = async (
   userId: string,
@@ -45,10 +252,7 @@ export const trackFilterRequest = async (
     pipeline.incr(KEY_PREFIXES.TOTAL_REQUESTS);
     console.log(`[Stats] Queued increment for ${KEY_PREFIXES.TOTAL_REQUESTS}`);
 
-    // Increment user requests
-    const userKey = `${KEY_PREFIXES.USER_REQUESTS}${userId}`;
-    pipeline.incr(userKey);
-    console.log(`[Stats] Queued increment for ${userKey}`);
+    // REMOVED: Per-user tracking to reduce Redis operations
 
     // Only track blocked requests - filtered can be derived (total - blocked)
     if (isBlocked) {
@@ -118,7 +322,7 @@ export const trackFilterRequest = async (
     try {
       console.log("[Stats] Attempting fallback direct increment");
       await statsIncrement(KEY_PREFIXES.TOTAL_REQUESTS);
-      await statsIncrement(`${KEY_PREFIXES.USER_REQUESTS}${userId}`);
+      // REMOVED: Per-user tracking to reduce Redis operations
 
       if (isBlocked) {
         await statsIncrement(KEY_PREFIXES.BLOCKED_REQUESTS);

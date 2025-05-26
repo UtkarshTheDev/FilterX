@@ -16,8 +16,31 @@ const fastHash = (str: string): string => {
   return hash.toString(36); // Base36 for shorter strings
 };
 
+// PHASE 4: Smart TTL strategy based on content type
+const CACHE_TTL_STRATEGY = {
+  BLOCKED_CONTENT: 3600, // 1 hour for blocked content
+  FLAGGED_CONTENT: 86400, // 24 hours for flagged content
+  CLEAN_CONTENT: 604800, // 1 week for clean content
+  DEFAULT: 3600, // 1 hour default
+};
+
 /**
- * Generate a deterministic hash for a filter request - optimized for speed
+ * PHASE 4: Normalize text for better cache hits
+ * Removes variations that don't affect moderation results
+ */
+const normalizeTextForCaching = (text: string): string => {
+  if (!text) return "";
+
+  return text
+    .toLowerCase() // Case insensitive
+    .replace(/\s+/g, " ") // Normalize whitespace
+    .replace(/[^\w\s@.-]/g, "") // Keep only alphanumeric, spaces, @, ., -
+    .trim();
+};
+
+/**
+ * PHASE 4 OPTIMIZED: Generate cache key with content-based hashing
+ * Features: Fuzzy matching, content normalization, smart TTL
  * @param text Text to filter
  * @param config Filter configuration
  * @param oldMessages Previous messages (optional)
@@ -32,6 +55,9 @@ export const generateCacheKey = (
   imageHash?: string,
   modelTier?: string
 ): string => {
+  // PHASE 4: Normalize text for better cache hits
+  const normalizedText = normalizeTextForCaching(text);
+
   // Create a more compact cache key to reduce processing time
   // Only include essential configuration options that affect the result
   // Use direct property access instead of creating a new object
@@ -57,33 +83,33 @@ export const generateCacheKey = (
     }
   }
 
-  // Take a sample of the text for faster hashing while maintaining uniqueness
+  // PHASE 4: Take a sample of the normalized text for faster hashing while maintaining uniqueness
   // For longer texts, sample from the beginning, middle, and end
   let textSample = "";
-  if (text) {
-    const textLength = text.length;
+  if (normalizedText) {
+    const textLength = normalizedText.length;
     if (textLength <= 100) {
       // For short texts, use the whole thing
-      textSample = text;
+      textSample = normalizedText;
     } else {
       // For longer texts, take samples from beginning, middle, and end
       textSample =
-        text.substring(0, 40) +
-        text.substring(
+        normalizedText.substring(0, 40) +
+        normalizedText.substring(
           Math.floor(textLength / 2) - 20,
           Math.floor(textLength / 2) + 20
         ) +
-        text.substring(textLength - 40);
+        normalizedText.substring(textLength - 40);
     }
   }
 
-  // Combine the parts with delimiters for uniqueness
+  // PHASE 4: Combine the parts with delimiters for uniqueness
   const hashInput = `${textSample}|${configString}|${messagesString}|${
     imageHash || ""
   }|${modelTier || "normal"}`;
 
   // Use fast hash function instead of MD5 for better performance
-  return fastHash(hashInput);
+  return `filter:${fastHash(hashInput)}`;
 };
 
 /**
@@ -209,28 +235,26 @@ export const setCachedResponse = async (
 };
 
 /**
- * Calculate adaptive TTL based on response content and moderation result
+ * PHASE 4 OPTIMIZED: Calculate adaptive TTL based on response content and moderation result
+ * Uses smart TTL strategy: blocked=1h, flagged=24h, clean=1week
  * @param response The moderation response to cache
  * @returns Appropriate TTL in seconds
  */
 const calculateAdaptiveTTL = (response: any): number => {
-  // Get config values with defaults
-  const minTTL = config.caching.minResponseTTL || 3600; // 1 hour minimum
-  const maxTTL = config.caching.maxResponseTTL || 604800; // 1 week maximum
-  const defaultTTL = config.caching.responseTTL || 86400; // 1 day default
+  // PHASE 4: Use smart TTL strategy
 
-  // Blocked content gets shorter TTL as moderation rules may change
+  // Blocked content gets shortest TTL as moderation rules may change
   if (response.blocked) {
-    return minTTL; // 1 hour for blocked content
+    return CACHE_TTL_STRATEGY.BLOCKED_CONTENT; // 1 hour for blocked content
   }
 
-  // If no flags, content is clean and can be cached longer
+  // If no flags, content is clean and can be cached longest
   if (!response.flags || response.flags.length === 0) {
-    return maxTTL; // 1 week for clean content
+    return CACHE_TTL_STRATEGY.CLEAN_CONTENT; // 1 week for clean content
   }
 
   // Content with flags but not blocked gets medium TTL
-  return defaultTTL; // 1 day for flagged but not blocked
+  return CACHE_TTL_STRATEGY.FLAGGED_CONTENT; // 24 hours for flagged but not blocked
 };
 
 /**

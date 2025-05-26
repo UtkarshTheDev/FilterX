@@ -186,21 +186,20 @@ export const getRedisClient = (): Redis => {
     const redisUri = config.redis.uri;
     logger.debug(`Using Redis URI: ${redisUri.replace(/:[^:]*@/, ":****@")}`); // Log URI with hidden password
 
-    // Create a new Redis client with correct return type handling
+    // PHASE 1 OPTIMIZED: Create Redis client with enhanced performance settings
     redisClientInstance = new Redis(redisUri, {
-      // Enhanced retry strategy
+      // PHASE 1: Aggressive retry strategy for faster failover
       retryStrategy: (times) => {
-        if (times > 3) {
-          // After 3 attempts, give up and use memory cache
+        if (times > 2) {
+          // Reduced from 3 to 2 attempts
           logger.warn(
             `Redis connection failed after ${times} attempts, switching to memory cache`
           );
           isRedisAvailable = false;
-          return null; // Stop retrying (using null instead of false)
+          return null;
         }
-        // Maximum backoff time of 10 seconds
-        const maxBackoff = 10000;
-        const delay = Math.min(times * 500, maxBackoff);
+        // Faster backoff: 200ms, 400ms
+        const delay = times * 200;
         logger.debug(
           `Redis connection attempt ${times}, retrying in ${delay}ms`
         );
@@ -222,13 +221,19 @@ export const getRedisClient = (): Redis => {
         }
         return shouldReconnect;
       },
-      // Other options
-      maxRetriesPerRequest: 2, // Lower value to fail faster on individual commands
-      connectTimeout: 10000, // Shorter timeout for initial connection
-      enableOfflineQueue: true, // Queue commands when disconnected to prevent errors
-      enableAutoPipelining: false,
+      // PHASE 1: Performance-optimized connection settings
+      maxRetriesPerRequest: 1, // Fail fast - reduced from 2 to 1
+      connectTimeout: 3000, // Faster timeout - reduced from 10s to 3s
+      commandTimeout: 2000, // Add command timeout for rate limiting
+      enableOfflineQueue: false, // Disable queue to fail fast when disconnected
+      enableAutoPipelining: true, // Enable auto-pipelining for better performance
       lazyConnect: false, // Connect immediately
-      keepAlive: 10000, // Keep alive packet every 10 seconds
+      keepAlive: 5000, // More frequent keep-alive - reduced from 10s to 5s
+      // PHASE 1: Connection pooling settings
+      family: 4, // Force IPv4 for faster DNS resolution
+      db: 0, // Explicitly set database
+      // PHASE 1: Performance tuning
+      enableReadyCheck: true,
     });
 
     // Improve connection event handling
@@ -244,12 +249,19 @@ export const getRedisClient = (): Redis => {
     redisClientInstance.on("error", (err) => {
       logger.error("Redis connection error", err);
       isRedisAvailable = false;
-      // Don't crash the entire application on Redis errors
+      // PHASE 2 FIX: Don't crash the entire application on Redis errors
+      // Just log and continue with memory cache fallback
     });
 
-    redisClientInstance.on("reconnecting", () => {
-      logger.warn("Redis client reconnecting...");
-    });
+    redisClientInstance.on(
+      "reconnecting",
+      (retryDelayOnFailedAttempt: number) => {
+        logger.debug(
+          `Redis connection attempt ${retryDelayOnFailedAttempt}, retrying in ${retryDelayOnFailedAttempt}ms`
+        );
+        isRedisAvailable = false;
+      }
+    );
 
     redisClientInstance.on("close", () => {
       logger.warn("Redis connection closed");
@@ -259,7 +271,7 @@ export const getRedisClient = (): Redis => {
     redisClientInstance.on("end", () => {
       logger.warn("Redis connection ended");
       isRedisAvailable = false;
-      redisClientInstance = null; // Allow reconnection attempts
+      // Don't set redisClientInstance to null - let ioredis handle reconnection
     });
 
     return redisClientInstance;
@@ -438,19 +450,28 @@ export const statsGetMulti = async (
 };
 
 export const statsPipeline = () => {
-  // Check if Redis client exists and is in ready state
-  if (redisClient && redisClient.status === "ready") {
-    logger.debug(`Using Redis for pipeline (status: ${redisClient.status})`);
-    // Update the availability flag based on actual status
-    isRedisAvailable = true;
-    return redisClient.pipeline();
-  } else {
-    logger.warn(
-      `Redis not ready (status: ${
-        redisClient?.status || "null"
-      }, isRedisAvailable: ${isRedisAvailable}), using memory cache for pipeline`
+  try {
+    // Check if Redis client exists and is in ready state
+    if (redisClient && redisClient.status === "ready") {
+      logger.debug(`Using Redis for pipeline (status: ${redisClient.status})`);
+      // Update the availability flag based on actual status
+      isRedisAvailable = true;
+      return redisClient.pipeline();
+    } else {
+      logger.warn(
+        `Redis not ready (status: ${
+          redisClient?.status || "null"
+        }, isRedisAvailable: ${isRedisAvailable}), using memory cache for pipeline`
+      );
+      // Update the availability flag
+      isRedisAvailable = false;
+      return memoryCache.pipeline();
+    }
+  } catch (error) {
+    logger.error(
+      "Error creating Redis pipeline, falling back to memory cache:",
+      error
     );
-    // Update the availability flag
     isRedisAvailable = false;
     return memoryCache.pipeline();
   }

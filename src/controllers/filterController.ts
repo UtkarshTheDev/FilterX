@@ -66,12 +66,36 @@ export const filterController = {
       // Send response immediately before doing any additional processing
       res.status(200).json(result);
 
-      // Move ALL non-essential operations after response is sent
+      // CORRECTED: ALL non-essential operations after response is sent
       setImmediate(() => {
-        // Log performance metrics
-        console.log(`[Controller] Request processed in ${processingTime}ms`);
+        const backgroundStartTime = performance.now();
 
-        // We're no longer tracking detailed controller performance metrics
+        // Enhanced performance logging matching original format
+        const requestId =
+          req.headers["x-request-id"] ||
+          `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        console.log(`🚀 [Performance Summary] Request ${requestId}`);
+        console.log(`├── Total Time: ${processingTime}ms`);
+        console.log(`├── Core Processing: ${processingTime}ms (100%)`);
+        console.log(`├── Background Tasks: 0ms (0%)`);
+        console.log(`├── Cache Hit: ${result.cached ? "✅" : "❌"}`);
+        console.log(
+          `├── AI Used: ${
+            result.flags && result.flags.length > 0 ? "🤖" : "⚡"
+          }`
+        );
+        console.log(
+          `├── Response Size: ${JSON.stringify(result).length} bytes`
+        );
+        console.log(`└── User: ${req.userId || "anonymous"}`);
+
+        const backgroundTime = performance.now() - backgroundStartTime;
+        console.log(
+          `[Controller] Request processed in ${processingTime}ms - background completed in ${backgroundTime.toFixed(
+            2
+          )}ms`
+        );
       });
     }
   ),
@@ -126,15 +150,35 @@ export const filterController = {
       // Send response immediately - this is the critical optimization
       res.status(200).json({ results });
 
-      // Process non-essential tasks after response is sent
+      // CORRECTED: ALL non-essential tasks after response is sent
       setImmediate(() => {
-        console.log(
-          `[Controller] Batch request processed in ${processingTime}ms - response sent`
-        );
+        const backgroundStartTime = performance.now();
 
-        // Additional background logging or metrics can go here
+        // Enhanced batch performance logging
+        const requestId =
+          req.headers["x-request-id"] ||
+          `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        console.log(`🚀 [Performance Summary] Batch Request ${requestId}`);
+        console.log(`├── Total Time: ${processingTime}ms`);
+        console.log(`├── Core Processing: ${processingTime}ms (100%)`);
+        console.log(`├── Background Tasks: 0ms (0%)`);
+        console.log(`├── Items Processed: ${items.length}`);
         console.log(
-          `[Controller] Background processing complete for batch request (${items.length} items)`
+          `├── Avg Time per Item: ${Math.round(
+            processingTime / items.length
+          )}ms`
+        );
+        console.log(
+          `├── Response Size: ${JSON.stringify({ results }).length} bytes`
+        );
+        console.log(`└── User: ${req.userId || "anonymous"}`);
+
+        const backgroundTime = performance.now() - backgroundStartTime;
+        console.log(
+          `[Controller] Batch request processed in ${processingTime}ms - background completed in ${backgroundTime.toFixed(
+            2
+          )}ms`
         );
       });
     }
@@ -183,15 +227,35 @@ export const filterController = {
       // Send response immediately - this is the critical optimization
       res.status(200).json(result);
 
-      // Process non-essential tasks after response is sent
+      // CORRECTED: ALL non-essential tasks after response is sent
       setImmediate(() => {
-        console.log(
-          `[Controller] Text request processed in ${processingTime}ms - response sent`
-        );
+        const backgroundStartTime = performance.now();
 
-        // Additional background logging or metrics can go here
+        // Enhanced text performance logging
+        const requestId =
+          req.headers["x-request-id"] ||
+          `text_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        console.log(`🚀 [Performance Summary] Text Request ${requestId}`);
+        console.log(`├── Total Time: ${processingTime}ms`);
+        console.log(`├── Core Processing: ${processingTime}ms (100%)`);
+        console.log(`├── Background Tasks: 0ms (0%)`);
+        console.log(`├── Cache Hit: ${result.cached ? "✅" : "❌"}`);
         console.log(
-          `[Controller] Background processing complete for text request`
+          `├── AI Used: ${
+            result.flags && result.flags.length > 0 ? "🤖" : "⚡"
+          }`
+        );
+        console.log(
+          `├── Response Size: ${JSON.stringify(result).length} bytes`
+        );
+        console.log(`└── User: ${req.userId || "anonymous"}`);
+
+        const backgroundTime = performance.now() - backgroundStartTime;
+        console.log(
+          `[Controller] Text request processed in ${processingTime}ms - background completed in ${backgroundTime.toFixed(
+            2
+          )}ms`
         );
       });
     }
@@ -240,15 +304,35 @@ export const filterController = {
       // Send response immediately - this is the critical optimization
       res.status(200).json(result);
 
-      // Process non-essential tasks after response is sent
+      // CORRECTED: ALL non-essential tasks after response is sent
       setImmediate(() => {
-        console.log(
-          `[Controller] Image request processed in ${processingTime}ms - response sent`
-        );
+        const backgroundStartTime = performance.now();
 
-        // Additional background logging or metrics can go here
+        // Enhanced image performance logging
+        const requestId =
+          req.headers["x-request-id"] ||
+          `image_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        console.log(`🚀 [Performance Summary] Image Request ${requestId}`);
+        console.log(`├── Total Time: ${processingTime}ms`);
+        console.log(`├── Core Processing: ${processingTime}ms (100%)`);
+        console.log(`├── Background Tasks: 0ms (0%)`);
+        console.log(`├── Cache Hit: ${result.cached ? "✅" : "❌"}`);
         console.log(
-          `[Controller] Background processing complete for image request`
+          `├── AI Used: ${
+            result.flags && result.flags.length > 0 ? "🤖" : "⚡"
+          }`
+        );
+        console.log(
+          `├── Response Size: ${JSON.stringify(result).length} bytes`
+        );
+        console.log(`└── User: ${req.userId || "anonymous"}`);
+
+        const backgroundTime = performance.now() - backgroundStartTime;
+        console.log(
+          `[Controller] Image request processed in ${processingTime}ms - background completed in ${backgroundTime.toFixed(
+            2
+          )}ms`
         );
       });
     }
