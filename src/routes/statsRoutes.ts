@@ -7,9 +7,24 @@ import {
 } from "../services/statsService";
 import type { Request, Response } from "express";
 import { statsController } from "../controllers/statsController";
+import rateLimit from "express-rate-limit";
 
 // Create router
 const router = Router();
+
+// Rate limiter specifically for the aggregate endpoint (2 requests per minute)
+const aggregateRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 2, // 2 requests per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { 
+    error: "Stats aggregation rate limit exceeded. Only 2 requests per minute allowed.",
+    retryAfter: "60 seconds"
+  },
+  skipFailedRequests: false,
+  skipSuccessfulRequests: false,
+});
 
 /**
  * Get comprehensive database-first statistics (MAIN ENDPOINT)
@@ -18,6 +33,14 @@ const router = Router();
  * @returns {object} 200 - Comprehensive database statistics
  */
 router.get("/", statsController.getDatabaseStats);
+
+/**
+ * NEW: Run stats aggregation manually
+ * @route GET /stats/aggregate
+ * @group Stats - Manual stats aggregation
+ * @returns {object} 200 - Aggregation results
+ */
+router.get("/aggregate", aggregateRateLimiter, statsController.runStatsAggregation);
 
 /**
  * Get public stats summary (LEGACY - use / instead)
