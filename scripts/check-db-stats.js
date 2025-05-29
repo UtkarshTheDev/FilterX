@@ -139,8 +139,13 @@ async function checkDatabaseStats() {
   } finally {
     // Close database connection
     await pool.end();
+    console.log("🔌 Database connections closed");
+    console.log("✨ Database check completed");
   }
 }
 
 // Run the check
-checkDatabaseStats();
+checkDatabaseStats().catch((error) => {
+  console.error("Unhandled error in database check:", error);
+  process.exit(1);
+});

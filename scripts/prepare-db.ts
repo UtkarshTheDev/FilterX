@@ -1,10 +1,28 @@
 #!/usr/bin/env bun
-import { db, pool } from "../src/db";
+import { drizzle } from "drizzle-orm/node-postgres";
+import pkg from "pg";
+const { Pool } = pkg;
 import { apiKeys } from "../src/models/schema";
 import { eq, sql } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import bcrypt from "bcrypt";
 import { networkInterfaces } from "os";
+import { config } from "../src/config";
+
+// Create a script-specific database connection without keep-alive intervals
+const scriptPool = new Pool({
+  host: config.db.host,
+  port: config.db.port,
+  user: config.db.user,
+  password: config.db.password,
+  database: config.db.database,
+  ssl: config.db.ssl ? { rejectUnauthorized: false } : false,
+  max: 5, // Smaller pool for scripts
+  idleTimeoutMillis: 10000, // Shorter idle timeout for scripts
+  connectionTimeoutMillis: 5000,
+});
+
+const scriptDb = drizzle(scriptPool);
 
 /**
  * Get the current user's IP address
@@ -68,7 +86,7 @@ function getCurrentUserIP(): string {
 async function createApiKeysTable() {
   try {
     // Create api_keys table
-    await db.execute(sql`
+    await scriptDb.execute(sql`
       CREATE TABLE IF NOT EXISTS api_keys (
         id SERIAL PRIMARY KEY,
         key VARCHAR(64) NOT NULL UNIQUE,
@@ -81,7 +99,7 @@ async function createApiKeysTable() {
     `);
 
     // Create indexes for better performance
-    await db.execute(sql`
+    await scriptDb.execute(sql`
       CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
       CREATE INDEX IF NOT EXISTS idx_api_keys_ip ON api_keys(ip);
       CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
@@ -101,7 +119,7 @@ async function createApiKeysTable() {
 async function createStatsTables() {
   try {
     // Create request_stats_daily table
-    await db.execute(sql`
+    await scriptDb.execute(sql`
       CREATE TABLE IF NOT EXISTS request_stats_daily (
         date DATE PRIMARY KEY,
         total_requests INTEGER NOT NULL DEFAULT 0,
@@ -116,7 +134,7 @@ async function createStatsTables() {
     `);
 
     // Create api_performance_hourly table
-    await db.execute(sql`
+    await scriptDb.execute(sql`
       CREATE TABLE IF NOT EXISTS api_performance_hourly (
         id SERIAL PRIMARY KEY,
         timestamp TIMESTAMP NOT NULL,
@@ -135,7 +153,7 @@ async function createStatsTables() {
     `);
 
     // Create content_flags_daily table
-    await db.execute(sql`
+    await scriptDb.execute(sql`
       CREATE TABLE IF NOT EXISTS content_flags_daily (
         id SERIAL PRIMARY KEY,
         date DATE NOT NULL,
@@ -150,7 +168,7 @@ async function createStatsTables() {
     `);
 
     // Create user_activity_daily table
-    await db.execute(sql`
+    await scriptDb.execute(sql`
       CREATE TABLE IF NOT EXISTS user_activity_daily (
         id SERIAL PRIMARY KEY,
         date DATE NOT NULL,
@@ -179,13 +197,13 @@ async function createStatsTables() {
 async function removeCacheFields() {
   try {
     // Remove cache_hits column
-    await db.execute(sql`
+    await scriptDb.execute(sql`
       ALTER TABLE api_performance_hourly
       DROP COLUMN IF EXISTS cache_hits;
     `);
 
     // Remove cache_misses column
-    await db.execute(sql`
+    await scriptDb.execute(sql`
       ALTER TABLE api_performance_hourly
       DROP COLUMN IF EXISTS cache_misses;
     `);
@@ -228,7 +246,7 @@ const main = async () => {
     const currentUserIP = getCurrentUserIP();
     console.log(`   🌐 Detected current IP: ${currentUserIP}`);
 
-    const existingKeys = await db
+    const existingKeys = await scriptDb
       .select()
       .from(apiKeys)
       .where(eq(apiKeys.ip, currentUserIP));
@@ -244,7 +262,7 @@ const main = async () => {
         .slice(0, 32)}`;
 
       // Insert API key for current user IP
-      await db.insert(apiKeys).values({
+      await scriptDb.insert(apiKeys).values({
         key,
         ip: currentUserIP,
         userId,
@@ -271,7 +289,7 @@ const main = async () => {
         "\n   🏠 Creating additional localhost key for local development..."
       );
 
-      const localhostKeys = await db
+      const localhostKeys = await scriptDb
         .select()
         .from(apiKeys)
         .where(eq(apiKeys.ip, "127.0.0.1"));
@@ -283,7 +301,7 @@ const main = async () => {
           .replace(/[/$.]/g, "")
           .slice(0, 32)}`;
 
-        await db.insert(apiKeys).values({
+        await scriptDb.insert(apiKeys).values({
           key: localhostKey,
           ip: "127.0.0.1",
           userId: localhostUserId,
@@ -322,10 +340,21 @@ const main = async () => {
     console.error("Database preparation error:", error);
     process.exit(1);
   } finally {
-    // Close database connection
-    await pool.end();
+    // Close script-specific database connection
+    try {
+      await scriptPool.end();
+      console.log("🔌 Database connections closed");
+    } catch (error) {
+      console.error("Error closing database connections:", error);
+    }
+
+    // Process should exit naturally now without keep-alive intervals
+    console.log("✨ Script completed successfully");
   }
 };
 
 // Run the preparation
-main();
+main().catch((error) => {
+  console.error("Unhandled error in database preparation:", error);
+  process.exit(1);
+});
