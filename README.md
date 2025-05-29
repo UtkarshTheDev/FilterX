@@ -72,7 +72,7 @@ curl -X POST http://localhost:8000/v1/apikey \
 {
   "key": "sk-1234567890abcdef",
   "userId": "user_abc123",
-  "createdAt": "2024-01-15T10:30:00.000Z"
+  "createdAt": "2025-01-15T10:30:00.000Z"
 }
 ```
 

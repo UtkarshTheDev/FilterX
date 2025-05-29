@@ -162,7 +162,7 @@ async function main() {
     console.log("   1. Test the stats endpoints:");
     console.log("      GET /stats");
     console.log(
-      "      GET /stats/timeseries?startDate=2024-01-01&endDate=2024-01-07"
+      "      GET /stats/timeseries?startDate=2025-01-01&endDate=2025-01-07"
     );
     console.log(
       "   2. Monitor aggregation performance and adjust frequency as needed"

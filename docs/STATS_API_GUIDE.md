@@ -31,16 +31,17 @@ GET /stats?timeRange=30d
 
 #### Parameters
 
-| Parameter | Type | Required | Description | Default |
-|-----------|------|----------|-------------|---------|
-| `timeRange` | string | No | Time range for statistics | `all` (no limitation) |
+| Parameter   | Type   | Required | Description               | Default               |
+| ----------- | ------ | -------- | ------------------------- | --------------------- |
+| `timeRange` | string | No       | Time range for statistics | `all` (no limitation) |
 
 **Valid timeRange values:**
+
 - `today` - Today's statistics only
 - `yesterday` - Yesterday's statistics only
 - `7d` - Last 7 days statistics
 - `30d` - Last 30 days statistics
-- *(empty)* - All-time statistics (no date limitation)
+- _(empty)_ - All-time statistics (no date limitation)
 
 #### Response Format
 
@@ -48,9 +49,9 @@ GET /stats?timeRange=30d
 {
   "success": true,
   "timeRange": "today",
-  "startDate": "2024-01-15",
-  "endDate": "2024-01-15",
-  "timestamp": "2024-01-15T10:30:00.000Z",
+  "startDate": "2025-01-15",
+  "endDate": "2025-01-15",
+  "timestamp": "2025-01-15T10:30:00.000Z",
   "dataSource": "database",
   "version": "1.0.0",
   "stats": {
@@ -123,21 +124,22 @@ GET /stats?timeRange=30d
 
 ```bash
 # Get daily time-series data for last 7 days
-GET /stats/timeseries?startDate=2024-01-01&endDate=2024-01-07&granularity=daily
+GET /stats/timeseries?startDate=2025-01-01&endDate=2025-01-07&granularity=daily
 
 # Get hourly time-series data for today
-GET /stats/timeseries?startDate=2024-01-15&endDate=2024-01-15&granularity=hourly
+GET /stats/timeseries?startDate=2025-01-15&endDate=2025-01-15&granularity=hourly
 ```
 
 #### Parameters
 
-| Parameter | Type | Required | Description | Default |
-|-----------|------|----------|-------------|---------|
-| `startDate` | string | No | Start date (YYYY-MM-DD) | 7 days ago |
-| `endDate` | string | No | End date (YYYY-MM-DD) | Today |
-| `granularity` | string | No | Data granularity | `daily` |
+| Parameter     | Type   | Required | Description             | Default    |
+| ------------- | ------ | -------- | ----------------------- | ---------- |
+| `startDate`   | string | No       | Start date (YYYY-MM-DD) | 7 days ago |
+| `endDate`     | string | No       | End date (YYYY-MM-DD)   | Today      |
+| `granularity` | string | No       | Data granularity        | `daily`    |
 
 **Valid granularity values:**
+
 - `daily` - Daily aggregated data
 - `hourly` - Hourly aggregated data
 
@@ -146,13 +148,13 @@ GET /stats/timeseries?startDate=2024-01-15&endDate=2024-01-15&granularity=hourly
 ```json
 {
   "success": true,
-  "startDate": "2024-01-01",
-  "endDate": "2024-01-07",
-  "timestamp": "2024-01-15T10:30:00.000Z",
+  "startDate": "2025-01-01",
+  "endDate": "2025-01-07",
+  "timestamp": "2025-01-15T10:30:00.000Z",
   "granularity": "daily",
   "data": [
     {
-      "date": "2024-01-01",
+      "date": "2025-01-01",
       "totalRequests": 1200,
       "filteredRequests": 1050,
       "blockedRequests": 150,
@@ -161,7 +163,7 @@ GET /stats/timeseries?startDate=2024-01-15&endDate=2024-01-15&granularity=hourly
       "p95ResponseTime": 420
     },
     {
-      "date": "2024-01-02",
+      "date": "2025-01-02",
       "totalRequests": 1350,
       "filteredRequests": 1180,
       "blockedRequests": 170,
@@ -186,16 +188,16 @@ GET /stats/timeseries?startDate=2024-01-15&endDate=2024-01-15&granularity=hourly
 GET /stats/user/user123
 
 # Get user stats for custom date range
-GET /stats/user/user123?startDate=2024-01-01&endDate=2024-01-15
+GET /stats/user/user123?startDate=2025-01-01&endDate=2025-01-15
 ```
 
 #### Parameters
 
-| Parameter | Type | Required | Description | Default |
-|-----------|------|----------|-------------|---------|
-| `userId` | string | Yes | User ID (in URL path) | - |
-| `startDate` | string | No | Start date (YYYY-MM-DD) | 30 days ago |
-| `endDate` | string | No | End date (YYYY-MM-DD) | Today |
+| Parameter   | Type   | Required | Description             | Default     |
+| ----------- | ------ | -------- | ----------------------- | ----------- |
+| `userId`    | string | Yes      | User ID (in URL path)   | -           |
+| `startDate` | string | No       | Start date (YYYY-MM-DD) | 30 days ago |
+| `endDate`   | string | No       | End date (YYYY-MM-DD)   | Today       |
 
 ## Legacy Endpoints
 
@@ -238,19 +240,20 @@ curl "https://your-api.com/stats"
 
 ```bash
 # Get daily data for last month for charts
-curl "https://your-api.com/stats/timeseries?startDate=2024-01-01&endDate=2024-01-31&granularity=daily"
+curl "https://your-api.com/stats/timeseries?startDate=2025-01-01&endDate=2025-01-31&granularity=daily"
 ```
 
 ### 5. User Analysis
 
 ```bash
 # Get specific user's activity
-curl "https://your-api.com/stats/user/user123?startDate=2024-01-01&endDate=2024-01-31"
+curl "https://your-api.com/stats/user/user123?startDate=2025-01-01&endDate=2025-01-31"
 ```
 
 ## Response Fields Explained
 
 ### Request Statistics
+
 - **totalRequests**: Total number of filter requests
 - **filteredRequests**: Requests that passed filtering (allowed)
 - **blockedRequests**: Requests that were blocked
@@ -261,6 +264,7 @@ curl "https://your-api.com/stats/user/user123?startDate=2024-01-01&endDate=2024-
 - **daysWithData**: Number of days with recorded data
 
 ### API Performance
+
 - **calls**: Total API calls made
 - **errors**: Number of failed API calls
 - **errorRate**: Percentage of failed calls
@@ -268,11 +272,13 @@ curl "https://your-api.com/stats/user/user123?startDate=2024-01-01&endDate=2024-
 - **hoursWithData**: Number of hours with recorded data
 
 ### Content Flags
+
 - **flags**: Object containing flag names and their counts
 - **totalFlags**: Total number of content flags raised
 - **uniqueFlags**: Number of unique flag types
 
 ### User Activity
+
 - **totalUsers**: Number of active users
 - **totalRequests**: Total requests from all users
 - **blockRate**: Percentage of requests that were blocked
@@ -286,21 +292,21 @@ curl "https://your-api.com/stats/user/user123?startDate=2024-01-01&endDate=2024-
 ```json
 {
   "error": "Invalid time range. Use 'today', 'yesterday', '7d', or '30d'. Leave empty for all-time stats.",
-  "timestamp": "2024-01-15T10:30:00.000Z"
+  "timestamp": "2025-01-15T10:30:00.000Z"
 }
 ```
 
 ```json
 {
   "error": "Invalid date format. Use YYYY-MM-DD format.",
-  "timestamp": "2024-01-15T10:30:00.000Z"
+  "timestamp": "2025-01-15T10:30:00.000Z"
 }
 ```
 
 ```json
 {
   "error": "Failed to fetch database statistics",
-  "timestamp": "2024-01-15T10:30:00.000Z"
+  "timestamp": "2025-01-15T10:30:00.000Z"
 }
 ```
 
@@ -321,6 +327,7 @@ The Stats API follows the same rate limiting rules as other API endpoints. Pleas
 ## Support
 
 For questions or issues with the Stats API, please:
+
 1. Check this documentation first
 2. Review the error messages for specific guidance
 3. Contact the development team if needed

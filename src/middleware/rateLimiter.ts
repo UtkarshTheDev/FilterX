@@ -262,3 +262,10 @@ export const filterRateLimiter = createRateLimiter(
   "rate:filter",
   config.rateLimit.filterRequests
 );
+
+// Home endpoint rate limiter - more lenient for informational endpoint
+export const homeRateLimiter = createRateLimiter(
+  "rate:home",
+  60, // 60 requests per minute (more lenient than filter endpoints)
+  60000 // 1 minute window
+);

@@ -7,6 +7,7 @@ import { config } from "./config";
 import logger from "./utils/logger";
 
 // Route imports
+import homeRoutes from "./routes/home";
 import filterRoutes from "./routes/filter";
 import statsRoutes from "./routes/statsRoutes";
 import apiKeyRoutes from "./routes/apiKey";
@@ -107,6 +108,7 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 
 // API routes
+app.use("/", homeRoutes); // Home/root endpoint
 app.use("/v1/filter", filterRoutes);
 app.use("/stats", statsRoutes);
 app.use("/v1/apikey", apiKeyRoutes);

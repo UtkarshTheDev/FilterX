@@ -77,7 +77,7 @@ const testCases = [
   {
     name: "Normal Model - Mixed Content Analysis",
     data: {
-      text: "Thanks for the help! BTW, my email is contact.me.here@gmail.com and you can also text me at 555-CALL-NOW. I live at 123 Main Street if you want to meet up. Follow my Twitter @realuser2024",
+      text: "Thanks for the help! BTW, my email is contact.me.here@gmail.com and you can also text me at 555-CALL-NOW. I live at 123 Main Street if you want to meet up. Follow my Twitter @realuser2025",
       model: "normal",
       config: {
         allowAbuse: true,
