@@ -357,7 +357,7 @@ function generateHomePageHTML(serverInfo: any, processingTime: number): string {
                         </div>
                         <h3>returnFilteredMessage</h3>
                     </div>
-                    <p>When true, returns a censored version with sensitive parts replaced with [REDACTED] tags.</p>
+                    <p>When true, returns a censored version with sensitive parts replaced with **** (stars).</p>
                     <span class="default">Default: false</span>
                 </div>
             </div>

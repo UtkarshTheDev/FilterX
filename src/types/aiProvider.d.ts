@@ -1,6 +1,6 @@
 /**
  * AI Provider Interface and Types
- * Defines the contract for AI service providers in the SanityAI system
+ * Defines the contract for AI service providers in the FilterX system
  */
 
 export interface AIAnalysisResult {
@@ -34,11 +34,11 @@ export interface ProviderConfig {
 }
 
 export interface ModelTierConfig {
-  provider: 'akash' | 'gemini';
+  provider: "akash" | "gemini";
   model: string;
 }
 
-export type AIProviderType = 'akash' | 'gemini';
+export type AIProviderType = "akash" | "gemini";
 
 export interface AIProviderFactory {
   getProvider(providerType: AIProviderType): AIProvider;

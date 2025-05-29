@@ -1,8 +1,8 @@
-# SanityAI Stats API Guide
+# FilterX Stats API Guide
 
 ## Overview
 
-The SanityAI Stats API provides comprehensive statistics about your content filtering system. The API uses a **database-first approach** for better performance, reliability, and data consistency.
+The FilterX Stats API provides comprehensive statistics about your content filtering system. The API uses a **database-first approach** for better performance, reliability, and data consistency.
 
 ## Main Endpoint
 

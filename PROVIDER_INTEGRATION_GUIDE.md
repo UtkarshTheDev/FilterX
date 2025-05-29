@@ -2,7 +2,7 @@
 
 ## Overview
 
-SanityAI now supports multiple AI providers with flexible model tier configuration. This allows you to use different AI providers (Akash Chat, Google Gemini) for different model tiers, optimizing for performance, cost, and capabilities.
+FilterX now supports multiple AI providers with flexible model tier configuration. This allows you to use different AI providers (Akash Chat, Google Gemini) for different model tiers, optimizing for performance, cost, and capabilities.
 
 ## Supported Providers
 

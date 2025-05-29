@@ -1,41 +1,57 @@
 # 🛡️ FilterX - Advanced Content Moderation API
 
-> **Intelligent, fast, and configurable content filtering for modern applications**
+> **Enterprise-grade content filtering with AI-powered analysis and configurable security policies**
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat-square)](https://github.com/UtkarshTheDev/FilterX)
-[![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/Bun-000000?style=flat-square&logo=bun&logoColor=white)](https://bun.sh/)
-[![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
 
 ---
 
-## 🚀 What is FilterX?
+## Overview
 
-FilterX is a **production-ready content moderation API** that intelligently filters harmful content from text and images. Built for developers who need **fast, reliable, and highly configurable** content filtering with enterprise-grade performance.
+FilterX is a production-ready content moderation API that provides intelligent filtering of harmful content from text and images. Built for developers who need fast, reliable, and highly configurable content filtering with enterprise-grade performance.
 
-### ✨ Why Choose FilterX?
+### How FilterX Works
 
-- 🎯 **Smart Detection** - AI-powered analysis with pattern matching for comprehensive coverage
-- ⚡ **Lightning Fast** - Multi-tier caching system delivers responses in milliseconds
-- 🔧 **Highly Configurable** - Granular control over what content to allow or block
-- 🖼️ **Multi-Modal** - Process text, images, and mixed content seamlessly
-- 🧠 **Context-Aware** - Understands conversation context for better decisions
-- 📊 **Production Ready** - Built-in analytics, monitoring, and error handling
-- 🔒 **Secure by Default** - All filtering options default to the most restrictive settings
+```mermaid
+graph TD
+    A[Content] --> B[FilterX]
+    B --> C{Violations?}
+    C -->|No| D[✅ Allow Content]
+    C -->|Yes| E[❌ Block Content]
+```
+
+### Content Detection Capabilities
+
+- **Abusive Language** - Offensive content, harassment, and hate speech detection
+- **Personal Information** - Phone numbers, email addresses, and physical addresses
+- **Social Media Content** - Usernames, handles, and platform references
+- **Image Analysis** - AI-powered visual content moderation
+- **Context Awareness** - Conversation history analysis for improved accuracy
+
+### Key Features
+
+- ⚡ **High Performance** - Multi-tier caching with sub-100ms response times
+- 🔧 **Configurable** - Granular control over content filtering policies
+- 🤖 **AI-Powered** - Advanced machine learning models for nuanced detection
+- 🖼️ **Multi-Modal** - Process text, images, and mixed content
+- 📊 **Production Ready** - Built-in monitoring, analytics, and error handling
+- 🔒 **Secure by Default** - All filtering options default to restrictive settings
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### 📋 Prerequisites
+### Prerequisites
 
-- **[Bun](https://bun.sh/)** v1.0.0+ (Runtime)
+- **[Bun](https://bun.sh/)** v1.0.0+ (Primary runtime)
 - **PostgreSQL** 13+ (Database)
-- **Redis** 6+ (Caching - optional but recommended)
+- **Redis** 6+ (Caching layer - optional but recommended)
 - **Node.js** 18+ (Alternative runtime)
 
-### ⚡ Installation
+### Installation
 
 ```bash
 # Clone the repository
@@ -45,252 +61,155 @@ cd FilterX
 # Install dependencies
 bun install
 
-# Set up environment
+# Configure environment
 cp .env.example .env
-# Edit .env with your configuration
+# Edit .env with your database configuration
 
-# Set up database
-bun run db:setup
+# Initialize database
+bun run prepare-db
 
 # Start development server
 bun run dev
 
-# For production
+# For production deployment
 bun start
 ```
 
-### 🔑 Get Your API Key
+### API Key Generation
 
 ```bash
-curl -X POST http://localhost:8000/v1/apikey \
-  -H "Content-Type: application/json"
+curl -X GET http://localhost:8000/v1/apikey
 ```
 
 **Response:**
 
 ```json
 {
-  "key": "sk-1234567890abcdef",
+  "key": "your-api-key",
   "userId": "user_abc123",
   "createdAt": "2025-01-15T10:30:00.000Z"
 }
 ```
 
+### Basic Usage Example
+
+```bash
+curl -X POST http://localhost:8000/v1/filter \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Call me at 555-1234"}'
+```
+
+**Response:**
+
+```json
+{
+  "blocked": true,
+  "reason": "Contains phone number",
+  "flags": ["phone_number"]
+}
+```
+
 ---
 
-## 📖 API Documentation
+## API Documentation
 
-### 🔐 Authentication
+### Authentication
 
 All API requests require authentication using your API key in the `Authorization` header:
 
 ```bash
-Authorization: Bearer sk-1234567890abcdef
+Authorization: Bearer your-api-key
 ```
 
-### 🎯 Core Endpoints
+### Available Endpoints
 
-| Endpoint           | Method | Description                                                 |
-| ------------------ | ------ | ----------------------------------------------------------- |
-| `/v1/filter`       | POST   | **Main filtering endpoint** - Process text, images, or both |
-| `/v1/filter/text`  | POST   | **Text-only filtering** - Optimized for text content        |
-| `/v1/filter/image` | POST   | **Image-only filtering** - Optimized for image content      |
-| `/v1/filter/batch` | POST   | **Batch processing** - Filter multiple items at once        |
+| Endpoint           | Method | Description                                   |
+| ------------------ | ------ | --------------------------------------------- |
+| `/v1/filter`       | POST   | Main filtering endpoint for text and/or image |
+| `/v1/filter/text`  | POST   | Text-only content filtering                   |
+| `/v1/filter/image` | POST   | Image-only content filtering                  |
+| `/v1/filter/batch` | POST   | Batch processing for multiple items           |
+| `/v1/apikey`       | GET    | Generate or retrieve API key                  |
+| `/health`          | GET    | System health check                           |
 
 ---
 
-## 🔧 Configuration Options
+## Configuration Options
 
-**🔒 Security First:** All configuration flags default to `false` (most restrictive mode) for maximum security. You must explicitly set flags to `true` to allow specific content types.
+The API uses a secure-by-default approach where all filtering options are disabled by default. You must explicitly enable specific content types through configuration flags.
 
-### 📝 Complete Configuration Reference
+### Configuration Flow
 
-```typescript
-{
-  "config": {
-    // Content Type Controls
-    "allowAbuse": false,              // Allow abusive/offensive language
-    "allowPhone": false,              // Allow phone numbers
-    "allowEmail": false,              // Allow email addresses
-    "allowPhysicalInformation": false, // Allow physical addresses, locations
-    "allowSocialInformation": false,   // Allow social media handles, usernames
-
-    // Response Controls
-    "returnFilteredMessage": false,    // Return censored version of content
-
-    // Processing Controls
-    "analyzeImages": false            // Enable AI image analysis (slower but more accurate)
-  }
-}
+```mermaid
+graph TD
+    A[Content Input] --> B{Check Config}
+    B --> C[allowPhone: false]
+    B --> D[allowEmail: false]
+    B --> E[allowAbuse: false]
+    C --> F{Phone Detected?}
+    D --> G{Email Detected?}
+    E --> H{Abuse Detected?}
+    F -->|Yes| I[❌ Block]
+    F -->|No| J[✅ Allow]
+    G -->|Yes| I
+    G -->|No| J
+    H -->|Yes| I
+    H -->|No| J
 ```
 
-### 🛡️ Content Type Filters
-
-#### 🤬 Abusive Language (`allowAbuse`)
-
-**Default:** `false` (blocks abusive content)
-
-Controls detection of:
-
-- Offensive language and slurs
-- Harassment and bullying
-- Hate speech
-- Threatening language
+### Default Behavior
 
 ```json
 {
-  "text": "You're such an idiot!",
-  "config": {
-    "allowAbuse": false // Will be blocked
-  }
+  "text": "Email me at john@test.com or call 555-1234",
+  "config": {}
 }
 ```
 
-#### 📞 Phone Numbers (`allowPhone`)
+**Result:** Content blocked (phone number and email detected)
 
-**Default:** `false` (blocks phone numbers)
-
-Detects various phone number formats:
-
-- Standard formats: `(555) 123-4567`, `555-123-4567`
-- International: `+1-555-123-4567`
-- Spelled out: `five five five one two three four five six seven`
-- Obfuscated: `555.123.4567`, `555 123 4567`
+### Selective Permission
 
 ```json
 {
-  "text": "Call me at (555) 123-4567",
+  "text": "Email me at john@test.com",
   "config": {
-    "allowPhone": false // Will be blocked
+    "allowEmail": true
   }
 }
 ```
 
-#### 📧 Email Addresses (`allowEmail`)
+**Result:** Content allowed (email permitted by configuration)
 
-**Default:** `false` (blocks email addresses)
+### Configuration Parameters
 
-Detects email patterns:
+| Parameter                  | Description                            | Default |
+| -------------------------- | -------------------------------------- | ------- |
+| `allowAbuse`               | Allow abusive/offensive language       | `false` |
+| `allowPhone`               | Allow phone numbers                    | `false` |
+| `allowEmail`               | Allow email addresses                  | `false` |
+| `allowPhysicalInformation` | Allow physical addresses and locations | `false` |
+| `allowSocialInformation`   | Allow social media handles             | `false` |
+| `returnFilteredMessage`    | Return censored version of content     | `false` |
+| `analyzeImages`            | Enable AI-powered image analysis       | `false` |
 
-- Standard: `user@domain.com`
-- Obfuscated: `user at domain dot com`
-- Variations: `user[at]domain[dot]com`
+## Usage Examples
 
-```json
-{
-  "text": "Email me at john@example.com",
-  "config": {
-    "allowEmail": false // Will be blocked
-  }
-}
-```
+### Restrictive Content Policy
 
-#### 🏠 Physical Information (`allowPhysicalInformation`)
-
-**Default:** `false` (blocks physical info)
-
-Detects:
-
-- Street addresses
-- Credit card numbers
-- Physical locations
-- Postal codes
-
-```json
-{
-  "text": "I live at 123 Main Street, New York",
-  "config": {
-    "allowPhysicalInformation": false // Will be blocked
-  }
-}
-```
-
-#### 📱 Social Information (`allowSocialInformation`)
-
-**Default:** `false` (blocks social info)
-
-Detects:
-
-- Social media handles: `@username`
-- Platform references: `follow me on Instagram`
-- Social media URLs
-
-```json
-{
-  "text": "Follow me @johndoe on Twitter",
-  "config": {
-    "allowSocialInformation": false // Will be blocked
-  }
-}
-```
-
-### 🎛️ Response Controls
-
-#### 🔄 Return Filtered Message (`returnFilteredMessage`)
-
-**Default:** `false` (returns original content)
-
-When `true`, returns a censored version with sensitive parts replaced:
-
-```json
-{
-  "text": "Call me at (555) 123-4567",
-  "config": {
-    "allowPhone": false,
-    "returnFilteredMessage": true
-  }
-}
-
-// Response includes:
-{
-  "blocked": true,
-  "filteredText": "Call me at [PHONE_REDACTED]"
-}
-```
-
-### 🖼️ Image Processing Controls
-
-#### 🔍 Analyze Images (`analyzeImages`)
-
-**Default:** `false` (basic image processing)
-
-When `true`, enables AI-powered image analysis:
-
-```json
-{
-  "image": "base64_encoded_image_data",
-  "config": {
-    "analyzeImages": true // Enables deep AI analysis
-  }
-}
-```
-
-**Trade-offs:**
-
-- ✅ **More accurate** detection of inappropriate visual content
-- ❌ **Slower response** times (additional 200-500ms)
-- 💰 **Higher costs** due to AI processing
-
----
-
-## 🚀 Practical Examples
-
-### 📱 Chat Application (Strict Mode)
-
-Perfect for family-friendly chat apps:
+Suitable for family-friendly applications requiring strict content moderation:
 
 ```bash
 curl -X POST http://localhost:8000/v1/filter \
-  -H "Authorization: Bearer sk-your-api-key" \
+  -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "text": "Hey, call me at 555-1234 or email john@example.com",
+    "text": "Hey, call me at 555-1234 or email john@test.com",
     "config": {
       "allowAbuse": false,
       "allowPhone": false,
       "allowEmail": false,
-      "allowPhysicalInformation": false,
-      "allowSocialInformation": false,
       "returnFilteredMessage": true
     }
   }'
@@ -303,27 +222,24 @@ curl -X POST http://localhost:8000/v1/filter \
   "blocked": true,
   "flags": ["phone_number", "email_address"],
   "reason": "Contains phone number and email address",
-  "filteredText": "Hey, call me at [PHONE_REDACTED] or email [EMAIL_REDACTED]",
-  "processingTime": 23
+  "filteredMessage": "Hey, call me at [PHONE_REDACTED] or email [EMAIL_REDACTED]"
 }
 ```
 
-### 💼 Business Platform (Moderate Mode)
+### Business Communication Platform
 
-Allow professional contact sharing:
+Configuration allowing professional contact information sharing:
 
 ```bash
 curl -X POST http://localhost:8000/v1/filter \
-  -H "Authorization: Bearer sk-your-api-key" \
+  -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Contact me at john@company.com for business inquiries",
     "config": {
-      "allowAbuse": false,
-      "allowPhone": true,
       "allowEmail": true,
-      "allowPhysicalInformation": false,
-      "allowSocialInformation": false
+      "allowPhone": true,
+      "allowAbuse": false
     }
   }'
 ```
@@ -334,27 +250,23 @@ curl -X POST http://localhost:8000/v1/filter \
 {
   "blocked": false,
   "flags": [],
-  "reason": "Content passed all moderation checks",
-  "processingTime": 15
+  "reason": "Content passed all moderation checks"
 }
 ```
 
-### 🎮 Gaming Community (Custom Rules)
+### Social Platform with Abuse Prevention
 
-Allow social handles but block abuse:
+Allowing social media handles while blocking offensive content:
 
 ```bash
 curl -X POST http://localhost:8000/v1/filter \
-  -H "Authorization: Bearer sk-your-api-key" \
+  -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "text": "Add me on Discord @gamer123, but you suck at this game!",
+    "text": "Follow me @username, this content is inappropriate!",
     "config": {
-      "allowAbuse": false,
-      "allowPhone": false,
-      "allowEmail": false,
-      "allowPhysicalInformation": false,
       "allowSocialInformation": true,
+      "allowAbuse": false,
       "returnFilteredMessage": true
     }
   }'
@@ -367,137 +279,204 @@ curl -X POST http://localhost:8000/v1/filter \
   "blocked": true,
   "flags": ["abusive_language"],
   "reason": "Contains offensive language",
-  "filteredText": "Add me on Discord @gamer123, but *** **** ** **** ****!",
-  "processingTime": 89
+  "filteredMessage": "Follow me @username, this content is [CONTENT_FILTERED]!"
 }
 ```
 
-### 🖼️ Image + Text Processing
+### Multi-Modal Content Analysis
 
-Process both text and images together:
+Processing both text and image content:
 
 ```bash
 curl -X POST http://localhost:8000/v1/filter \
-  -H "Authorization: Bearer sk-your-api-key" \
+  -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "text": "Check out this cool photo!",
+    "text": "Check out this image",
     "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ...",
     "config": {
-      "allowAbuse": false,
       "analyzeImages": true
     }
   }'
 ```
 
-### 📦 Batch Processing
+### Batch Processing
 
-Process multiple items efficiently:
+Efficient processing of multiple content items:
 
 ```bash
 curl -X POST http://localhost:8000/v1/filter/batch \
-  -H "Authorization: Bearer sk-your-api-key" \
+  -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "items": [
       {
-        "text": "First message to check",
-        "config": { "allowPhone": false }
+        "text": "First message to moderate",
+        "config": {"allowPhone": false}
       },
       {
-        "text": "Second message with email@test.com",
-        "config": { "allowEmail": true }
+        "text": "Contact: admin@example.com",
+        "config": {"allowEmail": true}
       }
     ]
   }'
 ```
 
-### 🧠 Context-Aware Filtering
-
-Include conversation history for better context:
-
-```bash
-curl -X POST http://localhost:8000/v1/filter \
-  -H "Authorization: Bearer sk-your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "Yes, that sounds good",
-    "oldMessages": [
-      "Want to meet up later?",
-      "Sure, what time works for you?"
-    ],
-    "config": {
-      "allowPhysicalInformation": false
-    }
-  }'
-```
-
 ---
 
-## 📊 Response Format
+## Response Format
 
-### ✅ Standard Response
+All API endpoints return standardized JSON responses with consistent structure.
+
+### Response Flow
+
+```mermaid
+graph LR
+    A[API Request] --> B{Content Analysis}
+    B -->|Clean| C[blocked: false]
+    B -->|Violation| D[blocked: true]
+    C --> E[flags: []]
+    D --> F[flags: ['phone_number']]
+    E --> G[Response JSON]
+    F --> G
+    D --> H[filteredMessage]
+    H --> G
+```
+
+### Successful Response (Content Allowed)
 
 ```json
 {
   "blocked": false,
   "flags": [],
-  "reason": "Content passed all moderation checks",
-  "text": "Original text content",
-  "processingTime": 25,
-  "cached": false
+  "reason": "Content passed all moderation checks"
 }
 ```
 
-### 🚫 Blocked Content Response
+### Blocked Content Response
 
 ```json
 {
   "blocked": true,
-  "flags": ["phone_number", "abusive_language"],
-  "reason": "Contains phone number and offensive language",
-  "text": "Original text content",
-  "filteredText": "Censored version with [REDACTED] content",
-  "processingTime": 156,
-  "cached": false
+  "flags": ["phone_number", "email_address"],
+  "reason": "Contains phone number and email address",
+  "filteredMessage": "Contact me at [PHONE_REDACTED] or email [EMAIL_REDACTED]"
 }
 ```
 
-### 📋 Response Fields
+### Response Fields
 
-| Field            | Type     | Description                                         |
-| ---------------- | -------- | --------------------------------------------------- |
-| `blocked`        | boolean  | Whether content was blocked                         |
-| `flags`          | string[] | List of detected issues                             |
-| `reason`         | string   | Human-readable explanation                          |
-| `text`           | string   | Original content                                    |
-| `filteredText`   | string   | Censored version (if `returnFilteredMessage: true`) |
-| `processingTime` | number   | Processing time in milliseconds                     |
-| `cached`         | boolean  | Whether result came from cache                      |
+| Field             | Type       | Description                                                                   |
+| ----------------- | ---------- | ----------------------------------------------------------------------------- |
+| `blocked`         | `boolean`  | Indicates whether content was blocked (`true`) or allowed (`false`)           |
+| `flags`           | `string[]` | Array of detected content types (e.g., `["phone_number", "email_address"]`)   |
+| `reason`          | `string`   | Human-readable explanation of the moderation decision                         |
+| `filteredMessage` | `string`   | Censored version of content (only present when `returnFilteredMessage: true`) |
 
 ---
 
-## ⚡ Performance & Architecture
+## Troubleshooting
 
-### 🏗️ How FilterX Works
+### Authentication Errors
 
-FilterX uses a **multi-tier approach** for optimal speed and accuracy:
+**Issue:** "Invalid API key" or "Unauthorized" responses
 
-1. **⚡ Cache Layer** - Instant responses for previously processed content
-2. **🔍 Pre-screening** - Fast pattern matching for obvious violations
-3. **🤖 AI Analysis** - Deep learning for nuanced content understanding
-4. **🖼️ Image Processing** - Specialized computer vision for visual content
+**Solution:**
 
-### 📈 Performance Metrics
+```bash
+# Ensure you're using GET method to obtain API key
+curl -X GET http://localhost:8000/v1/apikey
 
-- **Average Response Time:** 15-50ms (cached), 100-300ms (new content)
-- **Throughput:** 1000+ requests/second
-- **Cache Hit Rate:** 85-95% in production
-- **Accuracy:** 99.2% precision, 98.8% recall
+# Verify correct header format
+curl -H "Authorization: Bearer sk-your-actual-api-key" ...
+```
 
-### 🔧 System Health
+### Connection Issues
 
-Check API status and performance:
+**Issue:** "Connection refused" or network errors
+
+**Solution:**
+
+```bash
+# Verify server is running
+bun run dev
+
+# Test server health
+curl http://localhost:8000/health
+```
+
+### Server Startup Issues
+
+**Issue:** Server fails to start or database connection errors
+
+**Solution:**
+
+```bash
+# Verify environment configuration
+cat .env
+
+# Reinitialize database
+bun run prepare-db
+
+# Check database connectivity
+bun run check:ts
+```
+
+---
+
+## Advanced Features
+
+### Context-Aware Analysis
+
+Include conversation history for improved content understanding:
+
+```json
+{
+  "text": "Yes, let's meet there",
+  "oldMessages": [
+    "Want to grab coffee?",
+    "Sure! How about Starbucks on Main St?"
+  ],
+  "config": {
+    "allowPhysicalInformation": false
+  }
+}
+```
+
+### AI Model Selection
+
+Configure processing speed and accuracy trade-offs:
+
+```json
+{
+  "text": "Content to analyze",
+  "model": "normal"
+}
+```
+
+### Model Performance Comparison
+
+```mermaid
+graph TD
+    A[Content Input] --> B{Model Selection}
+    B -->|fast| C[⚡ Fast Model]
+    B -->|normal| D[⚖️ Normal Model]
+    B -->|pro| E[🎯 Pro Model]
+    C --> F[~50ms Response]
+    D --> G[~150ms Response]
+    E --> H[~300ms Response]
+    F --> I[85% Accuracy]
+    G --> J[95% Accuracy]
+    H --> K[99% Accuracy]
+```
+
+**Available Models:**
+
+- `fast` - Optimized for speed with basic accuracy (~50ms, 85% accuracy)
+- `normal` - Balanced performance and accuracy (~150ms, 95% accuracy, default)
+- `pro` - Maximum accuracy with longer processing time (~300ms, 99% accuracy)
+
+### System Health Monitoring
 
 ```bash
 curl http://localhost:8000/health
@@ -508,98 +487,65 @@ curl http://localhost:8000/health
 ```json
 {
   "status": "healthy",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "uptime": 86400,
   "database": "connected",
-  "redis": "connected",
-  "performance": {
-    "avgResponseTime": 23,
-    "requestsPerSecond": 847,
-    "cacheHitRate": 0.92
-  }
+  "redis": "connected"
 }
 ```
 
 ---
 
-## 🛠️ Development
+## Development
 
-### 🧪 Testing
+### Testing
 
 ```bash
-# Run all tests
+# Run test suite
 bun test
-
-# Run specific test suite
-bun test filter
 
 # Run with coverage
 bun test --coverage
 ```
 
-### 📝 Code Quality
+### Code Quality
 
 ```bash
-# Lint code
+# Lint codebase
 bun run lint
 
 # Format code
 bun run format
 
 # Type checking
-bun run type-check
+bun run check:ts
 ```
 
-### 📊 Database Management
+### Database Management
 
 ```bash
-# Set up database
-bun run db:setup
+# Initialize database and tables
+bun run prepare-db
 
-# Run migrations
-bun run db:migrate
-
-# Check stats
-bun run stats:display
+# Test database connectivity
+bun run dev
 ```
 
 ---
 
-## 🤝 Support & Contributing
+## License
 
-### 📚 Documentation
-
-- **API Reference:** [Full API documentation](docs/api.md)
-- **Configuration Guide:** [Advanced configuration](docs/config.md)
-- **Deployment Guide:** [Production deployment](docs/deployment.md)
-
-### 🐛 Issues & Support
-
-- **Bug Reports:** [GitHub Issues](https://github.com/UtkarshTheDev/FilterX/issues)
-- **Feature Requests:** [GitHub Discussions](https://github.com/UtkarshTheDev/FilterX/discussions)
-- **Security Issues:** security@FilterX.dev
-
-### 🎯 Roadmap
-
-- [ ] **Real-time WebSocket API**
-- [ ] **Custom ML model training**
-- [ ] **Advanced analytics dashboard**
-- [ ] **Multi-language support**
-- [ ] **Webhook notifications**
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
 <div align="center">
 
-**Built with ❤️ using TypeScript and [Bun](https://bun.sh)**
+**Built by [Utkarsh Tiwari](https://github.com/UtkarshTheDev)**
 
 [![GitHub stars](https://img.shields.io/github/stars/UtkarshTheDev/FilterX?style=social)](https://github.com/UtkarshTheDev/FilterX)
 [![Twitter Follow](https://img.shields.io/twitter/follow/UtkarshTheDev?style=social)](https://twitter.com/UtkarshTheDev)
+
+_Enterprise-grade content moderation powered by TypeScript and [Bun](https://bun.sh)_
 
 </div>
