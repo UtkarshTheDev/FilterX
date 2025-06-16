@@ -68,6 +68,8 @@
     "uuid": "^11.1.0"
   },
   "trustedDependencies": [
-    "aws-sdk"
+    "aws-sdk",
+    "bcrypt",
+    "sharp"
   ]
 }

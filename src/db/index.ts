@@ -21,23 +21,29 @@ export const getPool = (): InstanceType<typeof Pool> => {
     "Initializing PostgreSQL connection pool with optimized settings"
   );
 
-  // Create a PostgreSQL connection pool with optimized settings
+  // Create a PostgreSQL connection pool with optimized settings for Neon
+  const dbHost = config.db.usePooler
+    ? config.db.host.replace('.neon.tech', '.pooler.neon.tech')
+    : config.db.host;
+
+  logger.info(`Using database host: ${dbHost} (pooler: ${config.db.usePooler})`);
+
   poolInstance = new Pool({
-    host: config.db.host,
+    host: dbHost,
     port: config.db.port,
     user: config.db.user,
     password: config.db.password,
     database: config.db.database,
     ssl: config.db.ssl ? { rejectUnauthorized: false } : false,
 
-    // Connection pool optimization
-    max: 10, // Maximum number of clients in the pool
+    // Optimized connection pool settings for Neon serverless
+    max: config.db.usePooler ? 5 : 10, // Fewer connections when using pooler
 
-    // Timeout optimizations
-    idleTimeoutMillis: 300000, // Keep idle connections for 5 minutes (rather than closing them quickly)
-    connectionTimeoutMillis: 3000, // Return an error faster if a connection can't be established
+    // Timeout optimizations for serverless
+    idleTimeoutMillis: config.db.usePooler ? 600000 : 300000, // 10 min for pooler, 5 min for direct
+    connectionTimeoutMillis: config.db.usePooler ? 5000 : 3000, // Longer timeout for pooler
 
-    // Connection handling
+    // Connection handling optimized for serverless
     allowExitOnIdle: false, // Prevent the app from exiting when the pool is idle
   });
 
@@ -114,20 +120,30 @@ export const getDb = () => {
 const pool = getPool();
 const db = getDb();
 
-// Periodically ping the database to keep connections alive
-setInterval(async () => {
-  try {
-    const client = await pool.connect();
-    await client.query("SELECT 1 as keep_alive");
-    client.release();
-    logger.debug("DB keep-alive ping successful");
-  } catch (error) {
-    logger.error("DB keep-alive ping failed", error);
-    // Attempt to re-warm the pool if the ping failed
-    isWarmedUp = false;
-    warmupConnectionPool();
-  }
-}, 60000); // Every minute
+// Conditionally ping the database to keep connections alive (optimized for Neon)
+if (config.stats.enableKeepAlive) {
+  const keepAliveInterval = config.stats.keepAliveIntervalMinutes * 60 * 1000;
+  logger.info(`DB keep-alive enabled: every ${config.stats.keepAliveIntervalMinutes} minutes`);
+
+  setInterval(async () => {
+    try {
+      // Only ping if we're not using pooler (pooler handles this automatically)
+      if (!config.db.usePooler) {
+        const client = await pool.connect();
+        await client.query("SELECT 1 as keep_alive");
+        client.release();
+        logger.debug("DB keep-alive ping successful");
+      }
+    } catch (error) {
+      logger.error("DB keep-alive ping failed", error);
+      // Attempt to re-warm the pool if the ping failed
+      isWarmedUp = false;
+      warmupConnectionPool();
+    }
+  }, keepAliveInterval);
+} else {
+  logger.info("DB keep-alive disabled - relying on connection pooler");
+}
 
 // Check database health with improved error handling
 export const isDatabaseHealthy = async (): Promise<boolean> => {

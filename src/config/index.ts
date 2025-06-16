@@ -14,6 +14,7 @@ export interface Config {
     password: string;
     database: string;
     ssl: boolean;
+    usePooler: boolean;
   };
   redis: {
     uri: string;
@@ -70,6 +71,12 @@ export interface Config {
     compressionEnabled: boolean;
     compressionThreshold: number;
   };
+  stats: {
+    aggregationIntervalMinutes: number;
+    batchSize: number;
+    enableKeepAlive: boolean;
+    keepAliveIntervalMinutes: number;
+  };
 }
 
 // Parse and export config with defaults
@@ -86,6 +93,7 @@ export const config: Config = {
     password: process.env.DB_PASSWORD || "postgres",
     database: process.env.DB_NAME || "filterx",
     ssl: process.env.DB_SSL === "true",
+    usePooler: process.env.DB_USE_POOLER === "true",
   },
   redis: {
     uri: process.env.REDIS_URI || "redis://localhost:6379",
@@ -172,5 +180,17 @@ export const config: Config = {
       process.env.CACHE_COMPRESSION_THRESHOLD || "1024",
       10
     ), // 1KB threshold
+  },
+  stats: {
+    aggregationIntervalMinutes: parseInt(
+      process.env.STATS_AGGREGATION_INTERVAL_MINUTES || "30",
+      10
+    ), // Default: 30 minutes
+    batchSize: parseInt(process.env.STATS_BATCH_SIZE || "100", 10), // Batch size for bulk operations
+    enableKeepAlive: process.env.STATS_ENABLE_KEEP_ALIVE !== "false", // Default: true, can be disabled
+    keepAliveIntervalMinutes: parseInt(
+      process.env.STATS_KEEP_ALIVE_INTERVAL_MINUTES || "10",
+      10
+    ), // Default: 10 minutes (reduced from 1 minute)
   },
 };

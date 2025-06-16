@@ -41,75 +41,86 @@ export const statsController = {
   ),
 
   /**
-   * NEW: Run stats aggregation manually
-   * This endpoint allows manual triggering of the stats aggregation process
-   * Rate limited to 2 requests per minute to prevent abuse
-   * No API key required - publicly accessible
+   * Run stats aggregation manually with smart data checking
+   * This endpoint is designed for cron-job.org triggering:
+   * - Checks Redis for data before connecting to database
+   * - Returns immediately if no data exists (saves compute costs)
+   * - Uses bulk operations to minimize database queries
+   * - Provides detailed response for monitoring
    */
   runStatsAggregation: asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
       const startTime = Date.now();
-      logger.info("Manual stats aggregation requested via API");
+      logger.info("Stats aggregation requested via API");
 
       try {
-        // Check if services are healthy before starting aggregation
+        // Check if Redis is healthy (required for data checking)
         const redisHealthy = await isRedisHealthy();
-        const dbHealthy = await isDatabaseHealthy();
 
-        if (!dbHealthy) {
-          return res.status(503).json({
-            success: false,
-            error: "Database is not healthy. Cannot perform aggregation.",
+        if (!redisHealthy) {
+          logger.warn("Redis not healthy - proceeding with force run");
+        }
+
+        // Run aggregation with smart data checking
+        const forceRun = req.query.force === 'true';
+        const aggregationResult = await runStatsAggregation({
+          forceRun,
+          skipDataCheck: !redisHealthy
+        });
+
+        const duration = Date.now() - startTime;
+
+        // Handle skipped aggregation (no data found)
+        if (aggregationResult.skipped) {
+          logger.info(`Aggregation skipped: ${aggregationResult.reason}`);
+          return res.status(200).json({
+            success: true,
+            skipped: true,
+            reason: aggregationResult.reason,
+            message: "No data to aggregate - database connection avoided",
+            recordsProcessed: 0,
+            duration,
             timestamp: new Date().toISOString(),
-            duration: Date.now() - startTime,
+            computeUsage: "zero",
           });
         }
 
-        // Send immediate response to client indicating aggregation has started
-        res.status(202).json({
-          success: true,
-          message: "Stats aggregation started successfully",
-          status: "processing",
+        // Handle successful aggregation
+        if (aggregationResult.success) {
+          logger.info(`Aggregation completed: ${aggregationResult.recordsProcessed} records in ${duration}ms`);
+          return res.status(200).json({
+            success: true,
+            message: "Stats aggregation completed successfully",
+            recordsProcessed: aggregationResult.recordsProcessed,
+            duration,
+            timestamp: new Date().toISOString(),
+            results: aggregationResult.results,
+            computeUsage: "minimal",
+          });
+        }
+
+        // Handle failed aggregation
+        logger.error(`Aggregation failed: ${aggregationResult.errors.join(", ")}`);
+        return res.status(500).json({
+          success: false,
+          error: "Stats aggregation failed",
+          details: aggregationResult.errors,
+          recordsProcessed: aggregationResult.recordsProcessed,
+          duration,
           timestamp: new Date().toISOString(),
-          estimatedDuration: "10-30 seconds",
-          warnings: redisHealthy ? [] : ["Redis is not healthy - some data may be incomplete"],
-        });
-
-        // Run aggregation in background (don't await to avoid timeout)
-        setImmediate(async () => {
-          try {
-            logger.info("Starting background stats aggregation");
-            const aggregationResult = await runStatsAggregation();
-            const duration = Date.now() - startTime;
-
-            logger.info(
-              `Manual stats aggregation completed in ${duration}ms. Success: ${aggregationResult.success}`
-            );
-
-            // Log detailed results for monitoring
-            if (aggregationResult.success) {
-              logger.info("✅ Stats aggregation completed successfully");
-              logger.info(`📊 Results: ${JSON.stringify(aggregationResult.results)}`);
-            } else {
-              logger.warn("⚠️ Stats aggregation completed with errors");
-              logger.warn(`❌ Errors: ${aggregationResult.errors.join(", ")}`);
-            }
-
-          } catch (backgroundError) {
-            logger.error("Background stats aggregation failed:", backgroundError);
-          }
+          results: aggregationResult.results,
         });
 
       } catch (error) {
         const duration = Date.now() - startTime;
-        logger.error("Error starting stats aggregation:", error);
+        logger.error("Error in stats aggregation API:", error);
 
         return res.status(500).json({
           success: false,
-          error: "Failed to start stats aggregation",
+          error: "Failed to execute stats aggregation",
           details: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString(),
           duration,
+          timestamp: new Date().toISOString(),
         });
       }
     }
